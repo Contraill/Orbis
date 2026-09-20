@@ -3,6 +3,8 @@ services:
     build:
       context: ./app/backend
     image: media-app-backend:latest
+    env_file:
+      - .env
     container_name: media-app-backend
     restart: unless-stopped
     volumes:
