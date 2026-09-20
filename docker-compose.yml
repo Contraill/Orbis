@@ -2,6 +2,7 @@ services:
   backend:
     build:
       context: ./app/backend
+    image: media-app-backend:latest
     container_name: media-app-backend
     restart: unless-stopped
     volumes:
@@ -15,9 +16,31 @@ services:
   frontend:
     build:
       context: ./app/frontend
+    image: media-app-frontend:latest
     container_name: media-app-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "3000:80"
+
+x-casaos:
+  architectures:
+    - arm64
+  author: Contraill
+  category: Media
+  description:
+    en_US: Self-hosted provider-agnostic media streaming platform.
+  developer: Contraill
+  hostname: ""
+  id: io.contraill.media-app
+  index: /
+  is_uncontrolled: true
+  main: frontend
+  port_map: "3000"
+  scheme: http
+  tagline:
+    en_US: Your media, one interface.
+  title:
+    custom: ""
+    en_US: Media App
