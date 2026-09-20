@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: ./app/backend
+    container_name: media-app-backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      - ./config:/config
+      - ./cache:/cache
+      - ./logs:/logs
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./app/frontend
+    container_name: media-app-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
