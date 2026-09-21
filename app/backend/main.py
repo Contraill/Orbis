@@ -2,11 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.profiles import router as profiles_router
 from api.catalog import router as catalog_router
+from api.admin_providers import router as admin_providers_router
 
 app = FastAPI(title="Media App API", version="0.1.0")
 
 app.include_router(profiles_router)
 app.include_router(catalog_router)
+app.include_router(admin_providers_router)
 
 app.add_middleware(
     CORSMiddleware,
