@@ -9,6 +9,9 @@ export interface ProviderCapabilities {
   movie: boolean;
   episode: boolean;
   protocols: string[];
+  selectable_audio: boolean;
+  selectable_subtitles: boolean;
+  burned_in_subtitles: boolean;
 }
 
 export interface ProviderAdminView {
@@ -55,8 +58,27 @@ export interface PlaybackResolution {
   attempts: ProviderAttempt[];
 }
 
-
 export interface ResolutionFailureDetail {
   message: string;
   attempts: ProviderAttempt[];
+}
+
+export interface LiveProviderState {
+  provider_id: string;
+  name: string;
+  loaded: boolean;
+  has_active: boolean;
+  draft_code: string;
+  active_code: string | null;
+  versions: string[];
+}
+
+export interface ProviderValidation {
+  valid: boolean;
+  errors: string[];
+  provider: {
+    provider_id: string;
+    name: string;
+    capabilities: ProviderCapabilities;
+  } | null;
 }

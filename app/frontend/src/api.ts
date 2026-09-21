@@ -1,12 +1,15 @@
 import type {
+  LiveProviderState,
   PlaybackResolution,
   ProviderAdminView,
   ProviderEventView,
   ProviderHealthCheckReport,
+  ProviderValidation,
 } from "./types";
 
 
-const BASE = "/api/admin/providers";
+const PROVIDERS = "/api/admin/providers";
+const EDITOR = "/api/admin/provider-editor";
 
 
 export class ApiError extends Error {
@@ -27,7 +30,7 @@ export class ApiError extends Error {
 
 
 async function request<T>(
-  path: string,
+  url: string,
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
@@ -36,7 +39,7 @@ async function request<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fetch(url, {
     ...options,
     headers,
   });
@@ -55,7 +58,7 @@ async function request<T>(
         message = body.detail.message;
       }
     } catch {
-      // Keep HTTP status as the fallback error.
+      // Keep HTTP status.
     }
 
     throw new ApiError(
@@ -70,7 +73,7 @@ async function request<T>(
 
 
 export function listProviders() {
-  return request<ProviderAdminView[]>("");
+  return request<ProviderAdminView[]>(PROVIDERS);
 }
 
 
@@ -81,16 +84,19 @@ export function updateProvider(
     priority?: number;
   },
 ) {
-  return request<ProviderAdminView>(`/${providerId}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
+  return request<ProviderAdminView>(
+    `${PROVIDERS}/${providerId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 
 export function testProvider(providerId: string) {
   return request<ProviderHealthCheckReport>(
-    `/${providerId}/test`,
+    `${PROVIDERS}/${providerId}/test`,
     {
       method: "POST",
     },
@@ -100,10 +106,17 @@ export function testProvider(providerId: string) {
 
 export function getProviderLogs(
   providerId: string,
-  limit = 30,
+  limit = 50,
 ) {
   return request<ProviderEventView[]>(
-    `/${providerId}/logs?limit=${limit}`,
+    `${PROVIDERS}/${providerId}/logs?limit=${limit}`,
+  );
+}
+
+
+export function getDiscoveryErrors() {
+  return request<Record<string, string>>(
+    `${PROVIDERS}/discovery-errors`,
   );
 }
 
@@ -112,11 +125,11 @@ export function resolveMovie(
   tmdbId: number,
   providerId?: string,
 ) {
-  const path = providerId
-    ? `/${providerId}/resolve-test/movie/${tmdbId}`
-    : `/resolve-test/movie/${tmdbId}`;
+  const url = providerId
+    ? `${PROVIDERS}/${providerId}/resolve-test/movie/${tmdbId}`
+    : `${PROVIDERS}/resolve-test/movie/${tmdbId}`;
 
-  return request<PlaybackResolution>(path, {
+  return request<PlaybackResolution>(url, {
     method: "POST",
   });
 }
@@ -131,11 +144,111 @@ export function resolveEpisode(
   const suffix =
     `tv/${tmdbId}/season/${season}/episode/${episode}`;
 
-  const path = providerId
-    ? `/${providerId}/resolve-test/${suffix}`
-    : `/resolve-test/${suffix}`;
+  const url = providerId
+    ? `${PROVIDERS}/${providerId}/resolve-test/${suffix}`
+    : `${PROVIDERS}/resolve-test/${suffix}`;
 
-  return request<PlaybackResolution>(path, {
+  return request<PlaybackResolution>(url, {
     method: "POST",
   });
+}
+
+
+export function listLiveProviders() {
+  return request<LiveProviderState[]>(EDITOR);
+}
+
+
+export function createLiveProvider(
+  providerId: string,
+  name: string,
+) {
+  return request<LiveProviderState>(EDITOR, {
+    method: "POST",
+    body: JSON.stringify({
+      provider_id: providerId,
+      name,
+    }),
+  });
+}
+
+
+export function getLiveProvider(providerId: string) {
+  return request<LiveProviderState>(
+    `${EDITOR}/${providerId}`,
+  );
+}
+
+
+export function saveProviderDraft(
+  providerId: string,
+  code: string,
+) {
+  return request<LiveProviderState>(
+    `${EDITOR}/${providerId}/draft`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ code }),
+    },
+  );
+}
+
+
+export function validateProviderDraft(
+  providerId: string,
+) {
+  return request<ProviderValidation>(
+    `${EDITOR}/${providerId}/validate`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+
+export function activateProviderDraft(
+  providerId: string,
+) {
+  return request<LiveProviderState>(
+    `${EDITOR}/${providerId}/activate`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+
+export function rollbackProvider(
+  providerId: string,
+  version: string,
+) {
+  return request<LiveProviderState>(
+    `${EDITOR}/${providerId}/rollback/${encodeURIComponent(version)}`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+
+export function getProviderSettings(
+  providerId: string,
+) {
+  return request<Record<string, unknown>>(
+    `${EDITOR}/${providerId}/settings`,
+  );
+}
+
+
+export function saveProviderSettings(
+  providerId: string,
+  settings: Record<string, unknown>,
+) {
+  return request<Record<string, unknown>>(
+    `${EDITOR}/${providerId}/settings`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ settings }),
+    },
+  );
 }
