@@ -11,7 +11,7 @@ import {
 } from "../api";
 
 import type {
-  PlaybackResolution,
+  PlaybackResolutionSummary,
   ProviderAdminView,
   ResolutionFailureDetail,
 } from "../types";
@@ -41,7 +41,7 @@ export default function TestsPage() {
     useState("1");
 
   const [result, setResult] =
-    useState<PlaybackResolution | null>(null);
+    useState<PlaybackResolutionSummary | null>(null);
 
   const [failure, setFailure] =
     useState<ResolutionFailureDetail | null>(null);

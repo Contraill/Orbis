@@ -88,13 +88,11 @@ export interface PlaybackSource {
   quality: string | null;
   audio_tracks: AudioTrack[];
   subtitle_tracks: SubtitleTrack[];
-  headers: Record<string, string>;
   expires_at: string | null;
 }
 
-export interface PlaybackResolution {
+export interface PlaybackResolutionSummary {
   selected_provider_id: string;
-  sources: PlaybackSource[];
   attempts: ProviderAttempt[];
 }
 
@@ -141,15 +139,33 @@ export interface SubtitleSelection {
 
 export interface PlaybackSession {
   state: PlaybackState;
-  resolution: PlaybackResolution;
+  resolution: PlaybackResolutionSummary;
   selected_source: PlaybackSource;
+  source_session_id: string;
+  source_expires_at: string | null;
+  source_expiry_status:
+    | "expired"
+    | "near_expiry"
+    | "healthy";
+  refresh_at: string | null;
   selected_audio: AudioSelection;
   selected_subtitles: SubtitleSelection;
 }
 
-export interface PlaybackFailoverRequest
+export interface PlaybackTransitionRequest
   extends PlaybackStateUpdate {
+  preferred_audio_track_id: string | null;
+  preferred_subtitle_track_id: string | null;
+}
+
+export interface PlaybackFailoverRequest
+  extends PlaybackTransitionRequest {
   failed_provider_id: string;
+}
+
+export interface PlaybackRefreshRequest
+  extends PlaybackTransitionRequest {
+  source_session_id: string;
 }
 
 export interface ResolutionFailureDetail {

@@ -25,12 +25,21 @@ def match_audio_track(
     tracks: list[AudioTrack],
     preferred_language: str | None,
     preferred_kind: AudioKind | None,
+    preferred_track_id: str | None = None,
 ) -> AudioSelection:
     if not tracks:
         return AudioSelection(track=None, matched_by="none")
 
     language = normalize_language(preferred_language)
     base_language = _base_language(language)
+
+    if preferred_track_id is not None:
+        for track in tracks:
+            if track.track_id == preferred_track_id:
+                return AudioSelection(
+                    track=track,
+                    matched_by="track_id",
+                )
 
     if language is not None and preferred_kind is not None:
         for track in tracks:
@@ -87,11 +96,17 @@ def match_audio_track(
 def _match_subtitle_language(
     tracks: list[SubtitleTrack],
     preferred_language: str | None,
+    preferred_track_id: str | None = None,
 ) -> SubtitleTrack | None:
     if not tracks:
         return None
 
     language = normalize_language(preferred_language)
+
+    if preferred_track_id is not None:
+        for track in tracks:
+            if track.track_id == preferred_track_id:
+                return track
 
     if language is not None:
         for track in tracks:
@@ -110,6 +125,7 @@ def match_subtitle_track(
     tracks: list[SubtitleTrack],
     enabled: bool,
     preferred_language: str | None,
+    preferred_track_id: str | None = None,
 ) -> SubtitleSelection:
     burned_in = [
         track
@@ -130,6 +146,7 @@ def match_subtitle_track(
         _match_subtitle_language(
             selectable,
             preferred_language,
+            preferred_track_id,
         )
         if enabled
         else None
@@ -151,18 +168,22 @@ def selections_for_source(
     *,
     preferred_audio_language: str | None,
     preferred_audio_kind: AudioKind | None,
+    preferred_audio_track_id: str | None = None,
     subtitles_enabled: bool,
     preferred_subtitle_language: str | None,
+    preferred_subtitle_track_id: str | None = None,
 ) -> tuple[AudioSelection, SubtitleSelection]:
     return (
         match_audio_track(
             source.audio_tracks,
             preferred_audio_language,
             preferred_audio_kind,
+            preferred_audio_track_id,
         ),
         match_subtitle_track(
             source.subtitle_tracks,
             subtitles_enabled,
             preferred_subtitle_language,
+            preferred_subtitle_track_id,
         ),
     )

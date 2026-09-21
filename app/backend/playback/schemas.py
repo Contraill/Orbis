@@ -6,10 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from providers.schemas import (
     AudioKind,
     AudioTrack,
-    PlaybackResolution,
-    PlaybackSource,
+    PlaybackProtocol,
+    ProviderAttempt,
     SubtitleTrack,
 )
+from providers.source_policy import SourceExpiryStatus
 
 
 MediaType = Literal["movie", "tv"]
@@ -99,6 +100,7 @@ class AudioSelection(BaseModel):
     track: AudioTrack | None = None
     matched_by: Literal[
         "language_and_kind",
+        "track_id",
         "language",
         "kind",
         "base_language_and_kind",
@@ -115,16 +117,53 @@ class SubtitleSelection(BaseModel):
     burned_in_track: SubtitleTrack | None = None
 
 
+class PlaybackResolutionSummary(BaseModel):
+    selected_provider_id: str
+    attempts: list[ProviderAttempt]
+
+
+class PlaybackClientSource(BaseModel):
+    provider_id: str
+    url: str
+    protocol: PlaybackProtocol
+    quality: str | None = None
+    audio_tracks: list[AudioTrack]
+    subtitle_tracks: list[SubtitleTrack]
+    expires_at: datetime | None = None
+
+
 class PlaybackSession(BaseModel):
     state: PlaybackStateView
-    resolution: PlaybackResolution
-    selected_source: PlaybackSource
+    resolution: PlaybackResolutionSummary
+    selected_source: PlaybackClientSource
+    source_session_id: str
+    source_expires_at: datetime | None
+    source_expiry_status: SourceExpiryStatus
+    refresh_at: datetime | None
     selected_audio: AudioSelection
     selected_subtitles: SubtitleSelection
 
 
-class PlaybackFailoverRequest(PlaybackStateUpdate):
+class PlaybackTransitionRequest(PlaybackStateUpdate):
+    preferred_audio_track_id: str | None = Field(
+        default=None,
+        max_length=160,
+    )
+    preferred_subtitle_track_id: str | None = Field(
+        default=None,
+        max_length=160,
+    )
+
+
+class PlaybackFailoverRequest(PlaybackTransitionRequest):
     failed_provider_id: str = Field(
         min_length=1,
         max_length=80,
+    )
+
+
+class PlaybackRefreshRequest(PlaybackTransitionRequest):
+    source_session_id: str = Field(
+        min_length=32,
+        max_length=128,
     )

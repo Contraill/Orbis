@@ -193,11 +193,6 @@ export default function MediaPlayer({
         const player = new shakaPlayer.Player(video);
         playerRef.current = player;
 
-        player.getNetworkingEngine()
-          ?.registerRequestFilter((_type, request) => {
-            Object.assign(request.headers, source.headers);
-          });
-
         player.addEventListener("error", (event) => {
           reportError(
             (event as CustomEvent<unknown>).detail,

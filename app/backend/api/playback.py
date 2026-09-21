@@ -4,9 +4,11 @@ from sqlalchemy.orm import Session
 from db.session import get_db
 from playback.schemas import (
     PlaybackFailoverRequest,
+    PlaybackRefreshRequest,
     PlaybackSession,
     PlaybackStateUpdate,
     PlaybackStateView,
+    PlaybackTransitionRequest,
 )
 from playback.service import (
     ContentIdentity,
@@ -17,6 +19,11 @@ from playback.service import (
     playback_service,
     state_view,
     upsert_playback_state,
+)
+from playback.source_sessions import (
+    SourceSessionNotFound,
+    SourceSessionScopeError,
+    source_sessions,
 )
 from providers.manager import ResolutionFailed
 
@@ -106,14 +113,37 @@ async def _failover(
     identity: ContentIdentity,
     payload: PlaybackFailoverRequest,
 ) -> PlaybackSession:
+    return await _continue_playback(
+        db,
+        profile_id,
+        identity,
+        payload,
+        current_provider_id=payload.failed_provider_id,
+        excluded_provider_ids={payload.failed_provider_id},
+    )
+
+
+async def _continue_playback(
+    db: Session,
+    profile_id: int,
+    identity: ContentIdentity,
+    payload: PlaybackTransitionRequest,
+    *,
+    current_provider_id: str,
+    excluded_provider_ids: set[str] | None = None,
+    require_healthy_source: bool = False,
+) -> PlaybackSession:
     update = PlaybackStateUpdate(
         **payload.model_dump(
             exclude={
                 "failed_provider_id",
+                "source_session_id",
                 "last_provider_id",
+                "preferred_audio_track_id",
+                "preferred_subtitle_track_id",
             }
         ),
-        last_provider_id=payload.failed_provider_id,
+        last_provider_id=current_provider_id,
     )
 
     try:
@@ -127,14 +157,47 @@ async def _failover(
             db,
             profile_id,
             identity,
-            excluded_provider_ids={
-                payload.failed_provider_id
-            },
+            excluded_provider_ids=excluded_provider_ids,
+            require_healthy_source=require_healthy_source,
+            preferred_audio_track_id=(
+                payload.preferred_audio_track_id
+            ),
+            preferred_subtitle_track_id=(
+                payload.preferred_subtitle_track_id
+            ),
         )
     except ProfileNotFoundError:
         raise _profile_not_found()
     except ResolutionFailed as exc:
         raise _resolution_failed(exc)
+
+
+async def _refresh(
+    db: Session,
+    profile_id: int,
+    identity: ContentIdentity,
+    payload: PlaybackRefreshRequest,
+) -> PlaybackSession:
+    try:
+        source_session = source_sessions.get(
+            payload.source_session_id,
+            profile_id=profile_id,
+            content_key=identity.content_key,
+        )
+    except (SourceSessionNotFound, SourceSessionScopeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playback source session not found",
+        )
+
+    return await _continue_playback(
+        db,
+        profile_id,
+        identity,
+        payload,
+        current_provider_id=source_session.source.provider_id,
+        require_healthy_source=True,
+    )
 
 
 @router.get(
@@ -198,6 +261,24 @@ async def failover_movie(
     db: Session = Depends(get_db),
 ):
     return await _failover(
+        db,
+        profile_id,
+        movie_identity(tmdb_id),
+        payload,
+    )
+
+
+@router.post(
+    "/movie/{tmdb_id}/refresh",
+    response_model=PlaybackSession,
+)
+async def refresh_movie(
+    payload: PlaybackRefreshRequest,
+    profile_id: int = Path(gt=0),
+    tmdb_id: int = Path(gt=0),
+    db: Session = Depends(get_db),
+):
+    return await _refresh(
         db,
         profile_id,
         movie_identity(tmdb_id),
@@ -298,6 +379,30 @@ async def failover_episode(
     db: Session = Depends(get_db),
 ):
     return await _failover(
+        db,
+        profile_id,
+        _episode_identity(
+            tmdb_id,
+            season_number,
+            episode_number,
+        ),
+        payload,
+    )
+
+
+@router.post(
+    "/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/refresh",
+    response_model=PlaybackSession,
+)
+async def refresh_episode(
+    payload: PlaybackRefreshRequest,
+    profile_id: int = Path(gt=0),
+    tmdb_id: int = Path(gt=0),
+    season_number: int = Path(ge=0),
+    episode_number: int = Path(gt=0),
+    db: Session = Depends(get_db),
+):
+    return await _refresh(
         db,
         profile_id,
         _episode_identity(

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from db.models.provider import ProviderEvent
 from db.session import get_db
+from playback.schemas import PlaybackResolutionSummary
 from providers.manager import (
     ProviderNotRegistered,
     ResolutionFailed,
@@ -51,6 +52,15 @@ def resolution_failed(exc: ResolutionFailed) -> HTTPException:
                 for attempt in exc.attempts
             ],
         },
+    )
+
+
+def resolution_summary(
+    resolution: PlaybackResolution,
+) -> PlaybackResolutionSummary:
+    return PlaybackResolutionSummary(
+        selected_provider_id=resolution.selected_provider_id,
+        attempts=resolution.attempts,
     )
 
 
@@ -134,16 +144,18 @@ def provider_logs(
 
 @router.post(
     "/resolve-test/movie/{tmdb_id}",
-    response_model=PlaybackResolution,
+    response_model=PlaybackResolutionSummary,
 )
 async def fallback_movie_test(
     tmdb_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     try:
-        return await provider_manager.resolve_movie(
-            db,
-            tmdb_id,
+        return resolution_summary(
+            await provider_manager.resolve_movie(
+                db,
+                tmdb_id,
+            )
         )
     except ResolutionFailed as exc:
         raise resolution_failed(exc)
@@ -151,7 +163,7 @@ async def fallback_movie_test(
 
 @router.post(
     "/resolve-test/tv/{tmdb_id}/season/{season}/episode/{episode}",
-    response_model=PlaybackResolution,
+    response_model=PlaybackResolutionSummary,
 )
 async def fallback_episode_test(
     tmdb_id: int = Path(gt=0),
@@ -160,11 +172,13 @@ async def fallback_episode_test(
     db: Session = Depends(get_db),
 ):
     try:
-        return await provider_manager.resolve_episode(
-            db,
-            tmdb_id,
-            season,
-            episode,
+        return resolution_summary(
+            await provider_manager.resolve_episode(
+                db,
+                tmdb_id,
+                season,
+                episode,
+            )
         )
     except ResolutionFailed as exc:
         raise resolution_failed(exc)
@@ -172,7 +186,7 @@ async def fallback_episode_test(
 
 @router.post(
     "/{provider_id}/resolve-test/movie/{tmdb_id}",
-    response_model=PlaybackResolution,
+    response_model=PlaybackResolutionSummary,
 )
 async def provider_movie_test(
     provider_id: str,
@@ -183,11 +197,13 @@ async def provider_movie_test(
         raise provider_not_found()
 
     try:
-        return await provider_manager.resolve_movie(
-            db,
-            tmdb_id,
-            provider_id=provider_id,
-            force=True,
+        return resolution_summary(
+            await provider_manager.resolve_movie(
+                db,
+                tmdb_id,
+                provider_id=provider_id,
+                force=True,
+            )
         )
     except ProviderNotRegistered:
         raise provider_not_found()
@@ -197,7 +213,7 @@ async def provider_movie_test(
 
 @router.post(
     "/{provider_id}/resolve-test/tv/{tmdb_id}/season/{season}/episode/{episode}",
-    response_model=PlaybackResolution,
+    response_model=PlaybackResolutionSummary,
 )
 async def provider_episode_test(
     provider_id: str,
@@ -210,13 +226,15 @@ async def provider_episode_test(
         raise provider_not_found()
 
     try:
-        return await provider_manager.resolve_episode(
-            db,
-            tmdb_id,
-            season,
-            episode,
-            provider_id=provider_id,
-            force=True,
+        return resolution_summary(
+            await provider_manager.resolve_episode(
+                db,
+                tmdb_id,
+                season,
+                episode,
+                provider_id=provider_id,
+                force=True,
+            )
         )
     except ProviderNotRegistered:
         raise provider_not_found()

@@ -18,6 +18,7 @@ from providers.schemas import (
     ProviderAttempt,
     ProviderHealthCheckReport,
 )
+from providers.source_policy import usable_sources
 
 
 CIRCUIT_FAILURE_THRESHOLD = 5
@@ -329,6 +330,7 @@ class ProviderManager:
         provider_id: str | None = None,
         preferred_provider_id: str | None = None,
         excluded_provider_ids: set[str] | None = None,
+        require_healthy_source: bool = False,
         force: bool = False,
     ) -> PlaybackResolution:
         self.sync_registry(db)
@@ -425,6 +427,15 @@ class ProviderManager:
                             "an invalid provider_id"
                         )
 
+                sources = usable_sources(
+                    sources,
+                    require_healthy=require_healthy_source,
+                )
+                if not sources:
+                    raise ProviderError(
+                        "Provider returned no compatible unexpired sources"
+                    )
+
             except Exception as exc:
                 latency_ms = (perf_counter() - started) * 1000
 
@@ -480,6 +491,7 @@ class ProviderManager:
         provider_id: str | None = None,
         preferred_provider_id: str | None = None,
         excluded_provider_ids: set[str] | None = None,
+        require_healthy_source: bool = False,
         force: bool = False,
     ) -> PlaybackResolution:
         return await self._resolve(
@@ -489,6 +501,7 @@ class ProviderManager:
             provider_id=provider_id,
             preferred_provider_id=preferred_provider_id,
             excluded_provider_ids=excluded_provider_ids,
+            require_healthy_source=require_healthy_source,
             force=force,
         )
 
@@ -502,6 +515,7 @@ class ProviderManager:
         provider_id: str | None = None,
         preferred_provider_id: str | None = None,
         excluded_provider_ids: set[str] | None = None,
+        require_healthy_source: bool = False,
         force: bool = False,
     ) -> PlaybackResolution:
         return await self._resolve(
@@ -515,6 +529,7 @@ class ProviderManager:
             provider_id=provider_id,
             preferred_provider_id=preferred_provider_id,
             excluded_provider_ids=excluded_provider_ids,
+            require_healthy_source=require_healthy_source,
             force=force,
         )
 

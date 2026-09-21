@@ -13,7 +13,7 @@ import {
 
 import {
   failoverPlayback,
-  getPlaybackState,
+  refreshPlayback,
   resolvePlayback,
   savePlaybackState,
 } from "../api";
@@ -30,6 +30,7 @@ import type {
 
 
 const SAVE_INTERVAL_MS = 15_000;
+const MAX_TIMER_MS = 2_147_000_000;
 
 
 function parsePositive(value: string | undefined) {
@@ -137,6 +138,8 @@ export default function PlaybackPage() {
   const [session, setSession] =
     useState<PlaybackSession | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [sourceStartPosition, setSourceStartPosition] =
+    useState(0);
   const [duration, setDuration] =
     useState<number | null>(null);
   const [selectedAudio, setSelectedAudio] =
@@ -159,7 +162,8 @@ export default function PlaybackPage() {
     useState<string | null>(null);
 
   const readyRef = useRef(false);
-  const failoverRef = useRef(false);
+  const transitionRef = useRef(false);
+  const saveInFlightRef = useRef<Promise<void> | null>(null);
   const completedRef = useRef(false);
   const latestRef = useRef({
     currentTime,
@@ -169,6 +173,7 @@ export default function PlaybackPage() {
     preferredAudioKind,
     subtitlesEnabled,
     subtitleLanguage,
+    selectedSubtitle,
     session,
   });
 
@@ -180,10 +185,14 @@ export default function PlaybackPage() {
     preferredAudioKind,
     subtitlesEnabled,
     subtitleLanguage,
+    selectedSubtitle,
     session,
   };
 
-  const applySession = useCallback((next: PlaybackSession) => {
+  const applySession = useCallback((
+    next: PlaybackSession,
+    resumePosition = next.state.resume_position_seconds,
+  ) => {
     const source = next.selected_source;
     const audioTrack = source.audio_tracks.find(
       (track) => sameAudioTrack(
@@ -199,7 +208,11 @@ export default function PlaybackPage() {
     ) ?? null;
 
     setSession(next);
-    setCurrentTime(next.state.resume_position_seconds);
+    const boundedPosition = next.state.duration_seconds === null
+      ? resumePosition
+      : Math.min(resumePosition, next.state.duration_seconds);
+    setCurrentTime(boundedPosition);
+    setSourceStartPosition(boundedPosition);
     setDuration(next.state.duration_seconds);
     setSelectedAudio(audioTrack);
     setAudioLanguage(
@@ -229,24 +242,6 @@ export default function PlaybackPage() {
 
     void (async () => {
       try {
-        const saved = await getPlaybackState(identity);
-        if (cancelled) {
-          return;
-        }
-
-        if (saved) {
-          setCurrentTime(saved.resume_position_seconds);
-          setDuration(saved.duration_seconds);
-          setAudioLanguage(
-            saved.preferred_audio_language,
-          );
-          setAudioKind(saved.preferred_audio_kind);
-          setSubtitlesEnabled(saved.subtitles_enabled);
-          setSubtitleLanguage(
-            saved.preferred_subtitle_language,
-          );
-        }
-
         const resolved = await resolvePlayback(identity);
         if (!cancelled) {
           applySession(resolved);
@@ -297,31 +292,48 @@ export default function PlaybackPage() {
   );
 
   const persist = useCallback(
-    async (completed?: boolean, keepalive = false) => {
-      if (!identity || !readyRef.current) {
-        return;
+    (completed?: boolean, keepalive = false): Promise<void> => {
+      if (
+        !identity ||
+        !readyRef.current ||
+        transitionRef.current
+      ) {
+        return Promise.resolve();
+      }
+
+      if (saveInFlightRef.current) {
+        return saveInFlightRef.current;
       }
 
       const snapshot = stateSnapshot(completed);
       if (!snapshot) {
-        return;
+        return Promise.resolve();
       }
 
-      try {
-        await savePlaybackState(
-          identity,
-          snapshot,
-          keepalive,
-        );
-      } catch (reason) {
-        if (!keepalive) {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Playback progress could not be saved",
+      const operation = (async () => {
+        try {
+          await savePlaybackState(
+            identity,
+            snapshot,
+            keepalive,
           );
+        } catch (reason) {
+          if (!keepalive) {
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "Playback progress could not be saved",
+            );
+          }
         }
-      }
+      })();
+      saveInFlightRef.current = operation;
+      void operation.finally(() => {
+        if (saveInFlightRef.current === operation) {
+          saveInFlightRef.current = null;
+        }
+      });
+      return operation;
     },
     [identity, stateSnapshot],
   );
@@ -346,13 +358,16 @@ export default function PlaybackPage() {
     };
   }, [persist]);
 
-  const requestFailover = useCallback(
-    async (reason?: string) => {
+  const requestReplacement = useCallback(
+    async (
+      mode: "failover" | "refresh",
+      reason?: string,
+    ) => {
       const latest = latestRef.current;
       if (
         !identity ||
         !latest.session ||
-        failoverRef.current
+        transitionRef.current
       ) {
         return;
       }
@@ -362,41 +377,101 @@ export default function PlaybackPage() {
         return;
       }
 
-      failoverRef.current = true;
+      transitionRef.current = true;
       setFailoverBusy(true);
       setError(null);
       setMessage(
-        reason
+        mode === "refresh"
+          ? "Refreshing expiring source…"
+          : reason
           ? `Source failed: ${reason}. Trying next provider…`
           : "Trying next provider…",
       );
 
       try {
-        const next = await failoverPlayback(
-          identity,
-          {
+        await saveInFlightRef.current;
+        const trackPreferences = {
+          preferred_audio_track_id:
+            latest.selectedAudio?.track_id ?? null,
+          preferred_subtitle_track_id:
+            latest.selectedSubtitle?.track_id ?? null,
+        };
+        const next = mode === "refresh"
+          ? await refreshPlayback(identity, {
             ...snapshot,
+            ...trackPreferences,
+            source_session_id:
+              latest.session.source_session_id,
+          })
+          : await failoverPlayback(identity, {
+            ...snapshot,
+            ...trackPreferences,
             failed_provider_id:
               latest.session.resolution.selected_provider_id,
-          },
+          });
+        applySession(
+          next,
+          latestRef.current.currentTime,
         );
-        applySession(next);
         setMessage(
-          `Switched to ${next.resolution.selected_provider_id}`,
+          mode === "refresh"
+            ? "Playback source refreshed"
+            : `Switched to ${next.resolution.selected_provider_id}`,
         );
       } catch (failoverError) {
-        setError(
-          failoverError instanceof Error
-            ? failoverError.message
-            : "No fallback provider is available",
-        );
+        const errorMessage = failoverError instanceof Error
+          ? failoverError.message
+          : "No playback source is available";
+        if (mode === "refresh") {
+          setMessage(null);
+          setError(
+            `Source refresh failed: ${errorMessage}. ` +
+            "The current source remains active.",
+          );
+        } else {
+          setError(errorMessage);
+        }
       } finally {
-        failoverRef.current = false;
+        transitionRef.current = false;
         setFailoverBusy(false);
       }
     },
     [identity, stateSnapshot, applySession],
   );
+
+  useEffect(() => {
+    const refreshAt = session?.refresh_at;
+    if (!refreshAt) {
+      return;
+    }
+
+    let timer: number | undefined;
+    const schedule = () => {
+      const remaining =
+        Date.parse(refreshAt) - Date.now();
+      if (!Number.isFinite(remaining)) {
+        return;
+      }
+      if (remaining > MAX_TIMER_MS) {
+        timer = window.setTimeout(schedule, MAX_TIMER_MS);
+        return;
+      }
+      timer = window.setTimeout(() => {
+        void requestReplacement("refresh");
+      }, Math.max(0, remaining));
+    };
+
+    schedule();
+    return () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [
+    session?.source_session_id,
+    session?.refresh_at,
+    requestReplacement,
+  ]);
 
   const subtitleSelection = useMemo<SubtitleSelection>(() => {
     const burned = session?.selected_subtitles
@@ -482,9 +557,9 @@ export default function PlaybackPage() {
 
       <section className="playback-stage">
         <MediaPlayer
-          key={`${source.provider_id}:${source.url}`}
+          key={session.source_session_id}
           source={source}
-          startPosition={session.state.resume_position_seconds}
+          startPosition={sourceStartPosition}
           selectedAudio={selectedAudio}
           selectedSubtitles={subtitleSelection}
           onProgress={(position, nextDuration) => {
@@ -506,7 +581,7 @@ export default function PlaybackPage() {
             void persist(true);
           }}
           onError={(playerError) => {
-            void requestFailover(playerError);
+            void requestReplacement("failover", playerError);
           }}
         />
       </section>
@@ -631,7 +706,7 @@ export default function PlaybackPage() {
         <button
           className="button secondary"
           disabled={failoverBusy}
-          onClick={() => void requestFailover()}
+          onClick={() => void requestReplacement("failover")}
         >
           {failoverBusy ? "Switching…" : "Try next provider"}
         </button>

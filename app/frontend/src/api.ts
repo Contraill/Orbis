@@ -2,7 +2,8 @@ import type {
   LiveProviderState,
   PlaybackFailoverRequest,
   PlaybackIdentity,
-  PlaybackResolution,
+  PlaybackRefreshRequest,
+  PlaybackResolutionSummary,
   PlaybackSession,
   PlaybackState,
   PlaybackStateUpdate,
@@ -170,7 +171,7 @@ export function resolveMovie(
     ? `${PROVIDERS}/${providerId}/resolve-test/movie/${tmdbId}`
     : `${PROVIDERS}/resolve-test/movie/${tmdbId}`;
 
-  return request<PlaybackResolution>(url, {
+  return request<PlaybackResolutionSummary>(url, {
     method: "POST",
   });
 }
@@ -189,7 +190,7 @@ export function resolveEpisode(
     ? `${PROVIDERS}/${providerId}/resolve-test/${suffix}`
     : `${PROVIDERS}/resolve-test/${suffix}`;
 
-  return request<PlaybackResolution>(url, {
+  return request<PlaybackResolutionSummary>(url, {
     method: "POST",
   });
 }
@@ -236,6 +237,20 @@ export function failoverPlayback(
 ) {
   return request<PlaybackSession>(
     `${playbackPath(identity)}/failover`,
+    {
+      method: "POST",
+      body: JSON.stringify(state),
+    },
+  );
+}
+
+
+export function refreshPlayback(
+  identity: PlaybackIdentity,
+  state: PlaybackRefreshRequest,
+) {
+  return request<PlaybackSession>(
+    `${playbackPath(identity)}/refresh`,
     {
       method: "POST",
       body: JSON.stringify(state),

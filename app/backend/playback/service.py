@@ -12,11 +12,20 @@ from db.models.profile import Profile
 from playback.matching import selections_for_source
 from playback.schemas import (
     MediaType,
+    PlaybackClientSource,
+    PlaybackResolutionSummary,
     PlaybackSession,
     PlaybackStateUpdate,
     PlaybackStateView,
 )
+from playback.source_sessions import source_sessions
 from providers.manager import ProviderManager, provider_manager
+from providers.source_policy import (
+    aware_utc,
+    select_source,
+    source_expiry_status,
+    source_refresh_at,
+)
 
 
 MIN_PROGRESS_SECONDS = 5.0
@@ -216,6 +225,9 @@ class PlaybackService:
         identity: ContentIdentity,
         *,
         excluded_provider_ids: set[str] | None = None,
+        require_healthy_source: bool = False,
+        preferred_audio_track_id: str | None = None,
+        preferred_subtitle_track_id: str | None = None,
     ) -> PlaybackSession:
         state = get_playback_state(
             db,
@@ -234,6 +246,7 @@ class PlaybackService:
                 identity.tmdb_id,
                 preferred_provider_id=preferred_provider_id,
                 excluded_provider_ids=excluded_provider_ids,
+                require_healthy_source=require_healthy_source,
             )
         else:
             if (
@@ -250,6 +263,7 @@ class PlaybackService:
                 identity.episode_number,
                 preferred_provider_id=preferred_provider_id,
                 excluded_provider_ids=excluded_provider_ids,
+                require_healthy_source=require_healthy_source,
             )
 
         if state is None:
@@ -284,23 +298,85 @@ class PlaybackService:
             identity,
             update,
         )
-        source = resolution.sources[0]
+        stable_audio_track_id = (
+            preferred_audio_track_id
+            if resolution.selected_provider_id
+            == preferred_provider_id
+            else None
+        )
+        stable_subtitle_track_id = (
+            preferred_subtitle_track_id
+            if resolution.selected_provider_id
+            == preferred_provider_id
+            else None
+        )
+        source = select_source(
+            resolution.sources,
+            preferred_audio_language=(
+                state.preferred_audio_language
+            ),
+            preferred_audio_kind=state.preferred_audio_kind,
+            preferred_audio_track_id=stable_audio_track_id,
+            subtitles_enabled=state.subtitles_enabled,
+            preferred_subtitle_language=(
+                state.preferred_subtitle_language
+            ),
+            preferred_subtitle_track_id=stable_subtitle_track_id,
+            require_healthy=require_healthy_source,
+        )
         audio, subtitles = selections_for_source(
             source,
             preferred_audio_language=(
                 state.preferred_audio_language
             ),
             preferred_audio_kind=state.preferred_audio_kind,
+            preferred_audio_track_id=stable_audio_track_id,
             subtitles_enabled=state.subtitles_enabled,
             preferred_subtitle_language=(
                 state.preferred_subtitle_language
             ),
+            preferred_subtitle_track_id=stable_subtitle_track_id,
+        )
+
+        source_session = source_sessions.issue(
+            profile_id,
+            identity.content_key,
+            source,
+        )
+        client_url = source.url
+        if source.protocol == "http":
+            client_url = (
+                "/api/playback/sources/"
+                f"{source_session.session_id}"
+            )
+        normalized_expires_at = (
+            aware_utc(source.expires_at)
+            if source.expires_at is not None
+            else None
+        )
+        client_source = PlaybackClientSource(
+            provider_id=source.provider_id,
+            url=client_url,
+            protocol=source.protocol,
+            quality=source.quality,
+            audio_tracks=source.audio_tracks,
+            subtitle_tracks=source.subtitle_tracks,
+            expires_at=normalized_expires_at,
         )
 
         return PlaybackSession(
             state=state_view(state),
-            resolution=resolution,
-            selected_source=source,
+            resolution=PlaybackResolutionSummary(
+                selected_provider_id=(
+                    resolution.selected_provider_id
+                ),
+                attempts=resolution.attempts,
+            ),
+            selected_source=client_source,
+            source_session_id=source_session.session_id,
+            source_expires_at=normalized_expires_at,
+            source_expiry_status=source_expiry_status(source),
+            refresh_at=source_refresh_at(source),
             selected_audio=audio,
             selected_subtitles=subtitles,
         )
