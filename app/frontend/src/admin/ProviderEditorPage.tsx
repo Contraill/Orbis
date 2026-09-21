@@ -57,40 +57,49 @@ export default function ProviderEditorPage() {
   const [busy, setBusy] = useState(false);
 
 
-  async function load() {
-    const [state, settings] =
-      await Promise.all([
-        getLiveProvider(providerId),
-        getProviderSettings(providerId),
-      ]);
-
-    setProvider(state);
-    setCode(state.draft_code);
-
-    setSettingsText(
-      JSON.stringify(
-        settings,
-        null,
-        2,
-      ),
-    );
-  }
-
-
   useEffect(() => {
-    load().catch((err) => {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Provider load failed",
-      );
-    });
+    let cancelled = false;
+
+    setProvider(null);
+    setValidation(null);
+    setMessage(null);
+    setError(null);
+
+    Promise.all([
+      getLiveProvider(providerId),
+      getProviderSettings(providerId),
+    ])
+      .then(([state, settings]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setProvider(state);
+        setCode(state.draft_code);
+        setSettingsText(
+          JSON.stringify(settings, null, 2),
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Provider load failed",
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [providerId]);
 
 
   async function saveDraft() {
     setBusy(true);
     setError(null);
+    setMessage(null);
 
     try {
       const state = await saveProviderDraft(
@@ -115,6 +124,7 @@ export default function ProviderEditorPage() {
   async function validate() {
     setBusy(true);
     setError(null);
+    setMessage(null);
 
     try {
       await saveProviderDraft(
@@ -149,6 +159,7 @@ export default function ProviderEditorPage() {
   async function activate() {
     setBusy(true);
     setError(null);
+    setMessage(null);
 
     try {
       await saveProviderDraft(
@@ -188,15 +199,26 @@ export default function ProviderEditorPage() {
   async function saveSettings() {
     setBusy(true);
     setError(null);
+    setMessage(null);
 
     try {
-      const parsed = JSON.parse(
+      const parsed: unknown = JSON.parse(
         settingsText,
-      ) as Record<string, unknown>;
+      );
+
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        throw new Error(
+          "Provider settings must be a JSON object",
+        );
+      }
 
       await saveProviderSettings(
         providerId,
-        parsed,
+        parsed as Record<string, unknown>,
       );
 
       setMessage("Settings saved.");
@@ -222,6 +244,9 @@ export default function ProviderEditorPage() {
     }
 
     setBusy(true);
+    setError(null);
+    setMessage(null);
+    setValidation(null);
 
     try {
       const state = await rollbackProvider(
@@ -412,9 +437,11 @@ export default function ProviderEditorPage() {
             className="code-editor"
             value={code}
             spellCheck={false}
-            onChange={(event) =>
-              setCode(event.target.value)
-            }
+            onChange={(event) => {
+              setCode(event.target.value);
+              setValidation(null);
+              setMessage(null);
+            }}
           />
 
           {validation && (

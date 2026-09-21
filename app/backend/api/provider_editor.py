@@ -8,7 +8,9 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from providers.live import (
+    LiveProviderConflict,
     LiveProviderError,
+    LiveProviderNotFound,
     LiveProviderValidationError,
     activate_draft,
     create_live_provider,
@@ -54,6 +56,18 @@ class ProviderSettingsUpdate(BaseModel):
 
 
 def handle_error(exc: LiveProviderError):
+    if isinstance(exc, LiveProviderNotFound):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, LiveProviderConflict):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
     if isinstance(
         exc,
         LiveProviderValidationError,

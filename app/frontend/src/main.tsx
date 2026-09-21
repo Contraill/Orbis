@@ -15,6 +15,7 @@ import ProviderEditorPage from "./admin/ProviderEditorPage";
 import ProvidersPage from "./admin/ProvidersPage";
 import SettingsPage from "./admin/SettingsPage";
 import TestsPage from "./admin/TestsPage";
+import PlaybackPage from "./playback/PlaybackPage";
 
 import "./style.css";
 
@@ -55,6 +56,19 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
+
+        <Route
+          path={
+            "/watch/:profileId/:mediaType/:tmdbId" +
+            "/season/:seasonNumber/episode/:episodeNumber"
+          }
+          element={<PlaybackPage />}
+        />
+
+        <Route
+          path="/watch/:profileId/:mediaType/:tmdbId"
+          element={<PlaybackPage />}
+        />
 
         <Route
           path="/admin"

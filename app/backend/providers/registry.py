@@ -1,8 +1,9 @@
 import importlib
-import importlib.util
 import pkgutil
 import sys
 from pathlib import Path
+from threading import RLock
+from types import ModuleType
 
 from providers import adapters
 from providers.contract import MediaProvider
@@ -12,6 +13,7 @@ LIVE_PROVIDER_ROOT = Path("/config/providers")
 
 _PROVIDERS: dict[str, MediaProvider] | None = None
 _DISCOVERY_ERRORS: dict[str, str] = {}
+_REGISTRY_LOCK = RLock()
 _PROVIDER_SOURCES: dict[str, str] = {}
 
 
@@ -19,19 +21,14 @@ def _load_provider_module(
     module_name: str,
     path: Path,
 ) -> MediaProvider:
-    spec = importlib.util.spec_from_file_location(
-        module_name,
-        path,
-    )
-
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load {path}")
-
-    module = importlib.util.module_from_spec(spec)
+    module = ModuleType(module_name)
+    module.__file__ = str(path)
     sys.modules[module_name] = module
 
     try:
-        spec.loader.exec_module(module)
+        source = path.read_text(encoding="utf-8")
+        code = compile(source, str(path), "exec")
+        exec(code, module.__dict__)
     except Exception:
         sys.modules.pop(module_name, None)
         raise
@@ -145,41 +142,68 @@ def _discover_live(
             )
 
 
-def reload_registry() -> dict[str, MediaProvider]:
-    global _PROVIDERS
-    global _DISCOVERY_ERRORS
-    global _PROVIDER_SOURCES
+def registry_lock() -> RLock:
+    return _REGISTRY_LOCK
 
+
+def _discover_registry() -> tuple[
+    dict[str, MediaProvider],
+    dict[str, str],
+    dict[str, str],
+]:
     discovered: dict[str, MediaProvider] = {}
     sources: dict[str, str] = {}
     errors: dict[str, str] = {}
 
-    _discover_builtin(
-        discovered,
-        sources,
-        errors,
-    )
+    _discover_builtin(discovered, sources, errors)
+    _discover_live(discovered, sources, errors)
 
-    _discover_live(
-        discovered,
-        sources,
-        errors,
-    )
+    return discovered, sources, errors
+
+
+def _install_registry(
+    discovered: dict[str, MediaProvider],
+    sources: dict[str, str],
+    errors: dict[str, str],
+) -> None:
+    global _PROVIDERS
+    global _DISCOVERY_ERRORS
+    global _PROVIDER_SOURCES
 
     _PROVIDERS = discovered
     _DISCOVERY_ERRORS = errors
     _PROVIDER_SOURCES = sources
 
-    return dict(discovered)
+
+def reload_registry() -> dict[str, MediaProvider]:
+    with _REGISTRY_LOCK:
+        discovered, sources, errors = _discover_registry()
+        _install_registry(discovered, sources, errors)
+        return dict(discovered)
+
+
+def reload_registry_if_live(
+    provider_id: str,
+) -> tuple[bool, dict[str, str]]:
+    """Install a registry only when its live provider loaded."""
+    with _REGISTRY_LOCK:
+        discovered, sources, errors = _discover_registry()
+
+        if sources.get(provider_id) != "live":
+            return False, errors
+
+        _install_registry(discovered, sources, errors)
+        return True, errors
 
 
 def all_providers() -> dict[str, MediaProvider]:
     global _PROVIDERS
 
-    if _PROVIDERS is None:
-        reload_registry()
+    with _REGISTRY_LOCK:
+        if _PROVIDERS is None:
+            reload_registry()
 
-    return dict(_PROVIDERS or {})
+        return dict(_PROVIDERS or {})
 
 
 def get_provider(
@@ -189,14 +213,16 @@ def get_provider(
 
 
 def discovery_errors() -> dict[str, str]:
-    if _PROVIDERS is None:
-        reload_registry()
+    with _REGISTRY_LOCK:
+        if _PROVIDERS is None:
+            reload_registry()
 
-    return dict(_DISCOVERY_ERRORS)
+        return dict(_DISCOVERY_ERRORS)
 
 
 def provider_sources() -> dict[str, str]:
-    if _PROVIDERS is None:
-        reload_registry()
+    with _REGISTRY_LOCK:
+        if _PROVIDERS is None:
+            reload_registry()
 
-    return dict(_PROVIDER_SOURCES)
+        return dict(_PROVIDER_SOURCES)

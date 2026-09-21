@@ -30,6 +30,29 @@ TMDB is the canonical metadata and content identity source.
 
 Designed primarily for Raspberry Pi 5 / CasaOS with remote access through Tailscale.
 
+```sh
+cp .env.example .env
+docker compose up -d --build
+```
+
+The backend applies Alembic migrations before starting. Runtime databases, logs,
+cache files, provider code, provider settings, and `.env` stay outside Git.
+
+## Verification
+
+Run the backend suite against the application image:
+
+```sh
+docker run --rm \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  -e DATABASE_URL=sqlite:////tmp/media-app-tests.db \
+  -v "$PWD/app/backend:/app" -w /app \
+  media-app-backend:latest \
+  python -m unittest discover -s tests -v
+```
+
+The frontend production build runs as part of `docker compose build`.
+
 ## License
 
 Private project. No open-source license is currently granted.

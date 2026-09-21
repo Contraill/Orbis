@@ -1,6 +1,11 @@
 import type {
   LiveProviderState,
+  PlaybackFailoverRequest,
+  PlaybackIdentity,
   PlaybackResolution,
+  PlaybackSession,
+  PlaybackState,
+  PlaybackStateUpdate,
   ProviderAdminView,
   ProviderEventView,
   ProviderHealthCheckReport,
@@ -10,6 +15,22 @@ import type {
 
 const PROVIDERS = "/api/admin/providers";
 const EDITOR = "/api/admin/provider-editor";
+
+
+function playbackPath(identity: PlaybackIdentity) {
+  const root =
+    `/api/playback/profiles/${identity.profileId}`;
+
+  if (identity.mediaType === "movie") {
+    return `${root}/movie/${identity.tmdbId}`;
+  }
+
+  return (
+    `${root}/tv/${identity.tmdbId}` +
+    `/season/${identity.seasonNumber}` +
+    `/episode/${identity.episodeNumber}`
+  );
+}
 
 
 export class ApiError extends Error {
@@ -56,6 +77,26 @@ async function request<T>(
         message = body.detail;
       } else if (body.detail?.message) {
         message = body.detail.message;
+      } else if (Array.isArray(body.detail)) {
+        const messages = body.detail
+          .map((item: unknown) => {
+            if (
+              item &&
+              typeof item === "object" &&
+              "msg" in item
+            ) {
+              return String(item.msg);
+            }
+            return null;
+          })
+          .filter(
+            (item: string | null): item is string =>
+              item !== null,
+          );
+
+        if (messages.length > 0) {
+          message = messages.join("; ");
+        }
       }
     } catch {
       // Keep HTTP status.
@@ -151,6 +192,55 @@ export function resolveEpisode(
   return request<PlaybackResolution>(url, {
     method: "POST",
   });
+}
+
+
+export function getPlaybackState(
+  identity: PlaybackIdentity,
+) {
+  return request<PlaybackState | null>(
+    `${playbackPath(identity)}/state`,
+  );
+}
+
+
+export function savePlaybackState(
+  identity: PlaybackIdentity,
+  state: PlaybackStateUpdate,
+  keepalive = false,
+) {
+  return request<PlaybackState>(
+    `${playbackPath(identity)}/state`,
+    {
+      method: "PUT",
+      body: JSON.stringify(state),
+      keepalive,
+    },
+  );
+}
+
+
+export function resolvePlayback(
+  identity: PlaybackIdentity,
+) {
+  return request<PlaybackSession>(
+    `${playbackPath(identity)}/resolve`,
+    { method: "POST" },
+  );
+}
+
+
+export function failoverPlayback(
+  identity: PlaybackIdentity,
+  state: PlaybackFailoverRequest,
+) {
+  return request<PlaybackSession>(
+    `${playbackPath(identity)}/failover`,
+    {
+      method: "POST",
+      body: JSON.stringify(state),
+    },
+  );
 }
 
 

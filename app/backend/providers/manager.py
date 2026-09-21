@@ -1,10 +1,13 @@
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.config import get_settings
 from db.models.provider import ProviderEvent, ProviderState
 from providers.contract import MediaProvider, ProviderError
 from providers.registry import all_providers, get_provider
@@ -33,6 +36,12 @@ class ResolutionFailed(ProviderError):
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def provider_error_message(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError):
+        return "Provider operation timed out"
+    return str(exc) or type(exc).__name__
 
 
 def circuit_is_open(state: ProviderState) -> bool:
@@ -74,7 +83,11 @@ class ProviderManager:
             changed = True
 
         if changed:
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                # Another request may have synchronized first.
+                db.rollback()
 
     def _state(
         self,
@@ -253,7 +266,10 @@ class ProviderManager:
         started = perf_counter()
 
         try:
-            result = await provider.health_check()
+            result = await asyncio.wait_for(
+                provider.health_check(),
+                timeout=get_settings().provider_operation_timeout_seconds,
+            )
             latency_ms = (perf_counter() - started) * 1000
             state.last_health_check_at = utc_now()
 
@@ -283,10 +299,10 @@ class ProviderManager:
                 state,
                 latency_ms,
                 "health_failed",
-                str(exc),
+                provider_error_message(exc),
             )
 
-            result_message = str(exc)
+            result_message = provider_error_message(exc)
             healthy = False
         else:
             result_message = result.message
@@ -309,7 +325,10 @@ class ProviderManager:
             Awaitable[list[PlaybackSource]],
         ],
         *,
+        capability: str,
         provider_id: str | None = None,
+        preferred_provider_id: str | None = None,
+        excluded_provider_ids: set[str] | None = None,
         force: bool = False,
     ) -> PlaybackResolution:
         self.sync_registry(db)
@@ -326,12 +345,44 @@ class ProviderManager:
                 )
             ).all()
 
+            if preferred_provider_id is not None:
+                states.sort(
+                    key=lambda state: (
+                        state.provider_id
+                        != preferred_provider_id,
+                        state.priority,
+                        state.provider_id,
+                    )
+                )
+
+        excluded = excluded_provider_ids or set()
+
         attempts: list[ProviderAttempt] = []
 
         for state in states:
+            if state.provider_id in excluded:
+                attempts.append(
+                    ProviderAttempt(
+                        provider_id=state.provider_id,
+                        status="skipped",
+                        error="Excluded after playback failure",
+                    )
+                )
+                continue
+
             provider = get_provider(state.provider_id)
 
             if provider is None:
+                continue
+
+            if not getattr(provider.capabilities, capability):
+                attempts.append(
+                    ProviderAttempt(
+                        provider_id=state.provider_id,
+                        status="skipped",
+                        error=f"{capability.title()} is not supported",
+                    )
+                )
                 continue
 
             if not force and not state.enabled:
@@ -357,7 +408,10 @@ class ProviderManager:
             started = perf_counter()
 
             try:
-                sources = await resolver(provider)
+                sources = await asyncio.wait_for(
+                    resolver(provider),
+                    timeout=get_settings().provider_operation_timeout_seconds,
+                )
 
                 if not sources:
                     raise ProviderError(
@@ -379,7 +433,7 @@ class ProviderManager:
                     state,
                     latency_ms,
                     "resolve_failed",
-                    str(exc),
+                    provider_error_message(exc),
                 )
 
                 attempts.append(
@@ -387,7 +441,7 @@ class ProviderManager:
                         provider_id=provider.id,
                         status="failed",
                         latency_ms=latency_ms,
-                        error=str(exc),
+                        error=provider_error_message(exc),
                     )
                 )
 
@@ -424,12 +478,17 @@ class ProviderManager:
         tmdb_id: int,
         *,
         provider_id: str | None = None,
+        preferred_provider_id: str | None = None,
+        excluded_provider_ids: set[str] | None = None,
         force: bool = False,
     ) -> PlaybackResolution:
         return await self._resolve(
             db,
             lambda provider: provider.resolve_movie(tmdb_id),
+            capability="movie",
             provider_id=provider_id,
+            preferred_provider_id=preferred_provider_id,
+            excluded_provider_ids=excluded_provider_ids,
             force=force,
         )
 
@@ -441,6 +500,8 @@ class ProviderManager:
         episode: int,
         *,
         provider_id: str | None = None,
+        preferred_provider_id: str | None = None,
+        excluded_provider_ids: set[str] | None = None,
         force: bool = False,
     ) -> PlaybackResolution:
         return await self._resolve(
@@ -450,7 +511,10 @@ class ProviderManager:
                 season,
                 episode,
             ),
+            capability="episode",
             provider_id=provider_id,
+            preferred_provider_id=preferred_provider_id,
+            excluded_provider_ids=excluded_provider_ids,
             force=force,
         )
 

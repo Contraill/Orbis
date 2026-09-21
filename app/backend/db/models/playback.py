@@ -2,16 +2,19 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
+    Index,
     Float,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    event,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
+from db.types import UTCDateTime
 
 
 def utc_now() -> datetime:
@@ -26,6 +29,22 @@ class PlaybackState(Base):
             "profile_id",
             "content_key",
             name="uq_playback_state_content",
+        ),
+        Index(
+            "uq_playback_movie_identity",
+            "profile_id",
+            "tmdb_id",
+            unique=True,
+            sqlite_where=text("media_type = 'movie'"),
+        ),
+        Index(
+            "uq_playback_episode_identity",
+            "profile_id",
+            "tmdb_id",
+            "season_number",
+            "episode_number",
+            unique=True,
+            sqlite_where=text("media_type = 'tv'"),
         ),
     )
 
@@ -111,8 +130,50 @@ class PlaybackState(Base):
     )
 
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         default=utc_now,
         onupdate=utc_now,
         nullable=False,
+    )
+
+
+def playback_content_key(
+    media_type: str,
+    tmdb_id: int,
+    season_number: int | None = None,
+    episode_number: int | None = None,
+) -> str:
+    if tmdb_id <= 0:
+        raise ValueError("tmdb_id must be positive")
+
+    if media_type == "movie":
+        if season_number is not None or episode_number is not None:
+            raise ValueError("Movies cannot have season or episode numbers")
+        return f"movie:{tmdb_id}"
+
+    if media_type == "tv":
+        if season_number is None or season_number < 0:
+            raise ValueError("TV playback requires a valid season number")
+        if episode_number is None or episode_number <= 0:
+            raise ValueError("TV playback requires a valid episode number")
+        return (
+            f"tv:{tmdb_id}:"
+            f"s{season_number}:e{episode_number}"
+        )
+
+    raise ValueError("media_type must be 'movie' or 'tv'")
+
+
+@event.listens_for(PlaybackState, "before_insert")
+@event.listens_for(PlaybackState, "before_update")
+def set_playback_content_key(
+    mapper,
+    connection,
+    target: PlaybackState,
+) -> None:
+    target.content_key = playback_content_key(
+        target.media_type,
+        target.tmdb_id,
+        target.season_number,
+        target.episode_number,
     )

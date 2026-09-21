@@ -2,25 +2,39 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from providers.registry import (
     LIVE_PROVIDER_ROOT,
-    discovery_errors,
     get_provider,
-    reload_registry,
+    registry_lock,
+    reload_registry_if_live,
 )
 
 
 PROVIDER_ID_RE = re.compile(
     r"^[a-z0-9][a-z0-9_-]{1,63}$"
 )
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+VALIDATION_RESULT_PREFIX = "__MEDIA_APP_PROVIDER__"
+VALIDATION_TIMEOUT_SECONDS = 8
+VALIDATION_OUTPUT_LIMIT = 1_000_000
 
 
 class LiveProviderError(RuntimeError):
+    pass
+
+
+class LiveProviderNotFound(LiveProviderError):
+    pass
+
+
+class LiveProviderConflict(LiveProviderError):
     pass
 
 
@@ -115,12 +129,12 @@ def create_live_provider(
     directory = provider_dir(provider_id)
 
     if directory.exists():
-        raise LiveProviderError(
+        raise LiveProviderConflict(
             "Provider directory already exists"
         )
 
     if get_provider(provider_id) is not None:
-        raise LiveProviderError(
+        raise LiveProviderConflict(
             "Provider id already exists"
         )
 
@@ -135,10 +149,12 @@ def create_live_provider(
         encoding="utf-8",
     )
 
-    (directory / "settings.json").write_text(
+    settings_path = directory / "settings.json"
+    settings_path.write_text(
         "{}\n",
         encoding="utf-8",
     )
+    os.chmod(settings_path, 0o600)
 
     return provider_editor_state(provider_id)
 
@@ -150,40 +166,45 @@ def save_draft(
     directory = provider_dir(provider_id)
 
     if not directory.exists():
-        raise LiveProviderError(
+        raise LiveProviderNotFound(
             "Live provider not found"
         )
 
-    (directory / "draft.py").write_text(
-        code,
-        encoding="utf-8",
-    )
+    with registry_lock():
+        _atomic_write_text(
+            code,
+            directory / "draft.py",
+        )
 
     return provider_editor_state(provider_id)
 
 
 def _validator_script() -> str:
     return r'''
-import importlib.util
 import json
+import resource
 import sys
+import types
 
 from providers.contract import MediaProvider
 
 
 path = sys.argv[1]
 expected_id = sys.argv[2]
-
-spec = importlib.util.spec_from_file_location(
-    "_provider_validation",
-    path,
+output_limit = int(sys.argv[3])
+resource.setrlimit(
+    resource.RLIMIT_FSIZE,
+    (output_limit, output_limit),
 )
+module_name = "_provider_validation"
+module = types.ModuleType(module_name)
+module.__file__ = path
+sys.modules[module_name] = module
 
-if spec is None or spec.loader is None:
-    raise RuntimeError("Cannot create module spec")
+with open(path, encoding="utf-8") as provider_file:
+    source = provider_file.read()
 
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+exec(compile(source, path, "exec"), module.__dict__)
 
 provider = getattr(module, "PROVIDER", None)
 
@@ -197,7 +218,7 @@ if provider.id != expected_id:
         "PROVIDER.id must match provider directory"
     )
 
-print(json.dumps({
+print("__MEDIA_APP_PROVIDER__" + json.dumps({
     "provider_id": provider.id,
     "name": provider.name,
     "capabilities": provider.capabilities.model_dump(
@@ -237,50 +258,86 @@ def validate_draft(provider_id: str) -> dict:
             "provider": None,
         }
 
-    env = os.environ.copy()
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key in {
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "PATH",
+            "PYTHONIOENCODING",
+            "PYTHONUNBUFFERED",
+        }
+    }
 
-    current_pythonpath = env.get(
-        "PYTHONPATH",
-        "",
-    )
+    env["PYTHONPATH"] = str(BACKEND_ROOT)
 
-    env["PYTHONPATH"] = (
-        f"/app:{current_pythonpath}"
-        if current_pythonpath
-        else "/app"
-    )
+    command = [
+        sys.executable,
+        "-c",
+        _validator_script(),
+        str(draft),
+        provider_id,
+        str(VALIDATION_OUTPUT_LIMIT),
+    ]
 
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                _validator_script(),
-                str(draft),
-                provider_id,
-            ],
-            capture_output=True,
+    with tempfile.TemporaryFile(mode="w+") as stdout_file, \
+         tempfile.TemporaryFile(mode="w+") as stderr_file:
+        process = subprocess.Popen(
+            command,
+            stdout=stdout_file,
+            stderr=stderr_file,
             text=True,
-            timeout=8,
+            start_new_session=True,
             env=env,
-            cwd="/app",
+            cwd=BACKEND_ROOT,
         )
 
-    except subprocess.TimeoutExpired:
-        errors.append(
-            "Provider validation timed out"
+        try:
+            process.wait(
+                timeout=VALIDATION_TIMEOUT_SECONDS
+            )
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            errors.append(
+                "Provider validation timed out"
+            )
+            return {
+                "valid": False,
+                "errors": errors,
+                "provider": None,
+            }
+
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read(
+            VALIDATION_OUTPUT_LIMIT + 1
+        )
+        stderr = stderr_file.read(
+            VALIDATION_OUTPUT_LIMIT + 1
         )
 
+    if (
+        len(stdout) > VALIDATION_OUTPUT_LIMIT
+        or len(stderr) > VALIDATION_OUTPUT_LIMIT
+    ):
         return {
             "valid": False,
-            "errors": errors,
+            "errors": [
+                "Provider validation output exceeded the limit"
+            ],
             "provider": None,
         }
 
-    if result.returncode != 0:
+    if process.returncode != 0:
         message = (
-            result.stderr.strip()
-            or result.stdout.strip()
+            stderr.strip()
+            or stdout.strip()
             or "Provider import failed"
         )
 
@@ -292,10 +349,23 @@ def validate_draft(provider_id: str) -> dict:
             "provider": None,
         }
 
+    output_line = next(
+        (
+            line.removeprefix(
+                VALIDATION_RESULT_PREFIX
+            )
+            for line in reversed(
+                stdout.splitlines()
+            )
+            if line.startswith(
+                VALIDATION_RESULT_PREFIX
+            )
+        ),
+        "",
+    )
+
     try:
-        provider_data = json.loads(
-            result.stdout.strip()
-        )
+        provider_data = json.loads(output_line)
     except json.JSONDecodeError:
         errors.append(
             "Validator returned invalid output"
@@ -341,71 +411,74 @@ def _atomic_copy(
     )
 
 
+def _atomic_write_text(
+    content: str,
+    destination: Path,
+) -> None:
+    temporary = destination.with_name(
+        f".{destination.name}.tmp"
+    )
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, destination)
+
+
+def _restore_active(
+    active: Path,
+    previous: bytes | None,
+) -> None:
+    if previous is None:
+        active.unlink(missing_ok=True)
+        return
+
+    temporary = active.with_name(".active.rollback")
+    temporary.write_bytes(previous)
+    os.replace(temporary, active)
+
+
 def activate_draft(provider_id: str) -> dict:
     directory = provider_dir(provider_id)
     draft = directory / "draft.py"
     active = directory / "active.py"
     versions = directory / "versions"
 
-    validation = validate_draft(provider_id)
+    with registry_lock():
+        validation = validate_draft(provider_id)
 
-    if not validation["valid"]:
-        raise LiveProviderValidationError(
-            validation["errors"]
-        )
-
-    previous = (
-        active.read_bytes()
-        if active.exists()
-        else None
-    )
-
-    if active.exists():
-        versions.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        shutil.copy2(
-            active,
-            versions / _version_name(),
-        )
-
-    _atomic_copy(
-        draft,
-        active,
-    )
-
-    reload_registry()
-
-    loaded = get_provider(provider_id)
-    errors = discovery_errors()
-
-    if loaded is None:
-        if previous is None:
-            active.unlink(missing_ok=True)
-        else:
-            temporary = active.with_name(
-                ".active.rollback"
+        if not validation["valid"]:
+            raise LiveProviderValidationError(
+                validation["errors"]
             )
 
-            temporary.write_bytes(previous)
+        previous = (
+            active.read_bytes()
+            if active.exists()
+            else None
+        )
 
-            os.replace(
-                temporary,
+        if active.exists():
+            versions.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            shutil.copy2(
                 active,
+                versions / _version_name(),
             )
 
-        reload_registry()
-
-        relevant = errors.get(
-            f"live:{provider_id}",
-            "Provider failed to activate",
+        _atomic_copy(draft, active)
+        loaded, errors = reload_registry_if_live(
+            provider_id
         )
 
-        raise LiveProviderValidationError(
-            [relevant]
-        )
+        if not loaded:
+            _restore_active(active, previous)
+            relevant = errors.get(
+                f"live:{provider_id}",
+                "Provider failed to activate",
+            )
+            raise LiveProviderValidationError(
+                [relevant]
+            )
 
     return provider_editor_state(provider_id)
 
@@ -438,7 +511,6 @@ def rollback_provider(
     directory = provider_dir(provider_id)
     versions = directory / "versions"
     active = directory / "active.py"
-
     version_name = Path(version).name
 
     if version_name != version:
@@ -449,52 +521,38 @@ def rollback_provider(
     selected = versions / version_name
 
     if not selected.is_file():
-        raise LiveProviderError(
+        raise LiveProviderNotFound(
             "Version not found"
         )
 
-    current = (
-        active.read_bytes()
-        if active.exists()
-        else None
-    )
-
-    if active.exists():
-        shutil.copy2(
-            active,
-            versions / _version_name(),
+    with registry_lock():
+        current = (
+            active.read_bytes()
+            if active.exists()
+            else None
         )
 
-    _atomic_copy(
-        selected,
-        active,
-    )
-
-    reload_registry()
-
-    if get_provider(provider_id) is None:
-        if current is not None:
-            temporary = active.with_name(
-                ".active.rollback"
-            )
-
-            temporary.write_bytes(current)
-
-            os.replace(
-                temporary,
+        if active.exists():
+            shutil.copy2(
                 active,
+                versions / _version_name(),
             )
 
-        reload_registry()
-
-        raise LiveProviderError(
-            "Rollback version failed to load"
+        _atomic_copy(selected, active)
+        loaded, _ = reload_registry_if_live(
+            provider_id
         )
 
-    shutil.copy2(
-        active,
-        directory / "draft.py",
-    )
+        if not loaded:
+            _restore_active(active, current)
+            raise LiveProviderError(
+                "Rollback version failed to load"
+            )
+
+        _atomic_copy(
+            active,
+            directory / "draft.py",
+        )
 
     return provider_editor_state(provider_id)
 
@@ -505,7 +563,7 @@ def provider_editor_state(
     directory = provider_dir(provider_id)
 
     if not directory.exists():
-        raise LiveProviderError(
+        raise LiveProviderNotFound(
             "Live provider not found"
         )
 
@@ -568,10 +626,14 @@ def list_live_providers() -> list[dict]:
 def get_settings(
     provider_id: str,
 ) -> dict:
-    path = (
-        provider_dir(provider_id)
-        / "settings.json"
-    )
+    directory = provider_dir(provider_id)
+
+    if not directory.exists():
+        raise LiveProviderNotFound(
+            "Live provider not found"
+        )
+
+    path = directory / "settings.json"
 
     if not path.exists():
         return {}
@@ -602,25 +664,23 @@ def save_settings(
     directory = provider_dir(provider_id)
 
     if not directory.exists():
-        raise LiveProviderError(
+        raise LiveProviderNotFound(
             "Live provider not found"
         )
 
     path = directory / "settings.json"
     temporary = directory / ".settings.tmp"
 
-    temporary.write_text(
-        json.dumps(
-            settings,
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n",
-        encoding="utf-8",
-    )
-
-    os.replace(
-        temporary,
-        path,
-    )
+    with registry_lock():
+        temporary.write_text(
+            json.dumps(
+                settings,
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
 
     return settings

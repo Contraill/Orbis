@@ -34,16 +34,38 @@ export default function DiagnosticsPage() {
   const [logs, setLogs] =
     useState<ProviderEventView[]>([]);
 
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [busy, setBusy] = useState(false);
+
 
   async function refresh() {
-    const [providerData, discovery] =
-      await Promise.all([
-        listProviders(),
-        getDiscoveryErrors(),
-      ]);
+    setBusy(true);
+    setError(null);
 
-    setProviders(providerData);
-    setErrors(discovery);
+    try {
+      const [providerData, discovery, logData] =
+        await Promise.all([
+          listProviders(),
+          getDiscoveryErrors(),
+          selected
+            ? getProviderLogs(selected, 100)
+            : Promise.resolve([]),
+        ]);
+
+      setProviders(providerData);
+      setErrors(discovery);
+      setLogs(logData);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Diagnostics refresh failed",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
 
@@ -54,15 +76,24 @@ export default function DiagnosticsPage() {
 
   async function loadLogs(providerId: string) {
     setSelected(providerId);
+    setError(null);
 
     if (!providerId) {
       setLogs([]);
       return;
     }
 
-    setLogs(
-      await getProviderLogs(providerId, 100),
-    );
+    try {
+      setLogs(
+        await getProviderLogs(providerId, 100),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Provider logs failed",
+      );
+    }
   }
 
 
@@ -79,11 +110,18 @@ export default function DiagnosticsPage() {
 
         <button
           className="button secondary"
+          disabled={busy}
           onClick={() => void refresh()}
         >
           Refresh
         </button>
       </div>
+
+      {error && (
+        <div className="banner error-banner">
+          {error}
+        </div>
+      )}
 
       {Object.keys(errors).length > 0 && (
         <article className="discovery-error-panel">
