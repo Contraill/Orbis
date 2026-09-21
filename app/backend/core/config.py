@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_env: str = "production"
     app_name: str = "Media App"
     tmdb_api_key: str | None = None
+    tmdb_language: str = "tr-TR"
     database_url: str = "sqlite:////data/media-app.db"
 
     model_config = SettingsConfigDict(
