@@ -1,16 +1,21 @@
 import type {
+  CatalogDetails,
+  CatalogPage,
   LiveProviderState,
   PlaybackFailoverRequest,
   PlaybackIdentity,
   PlaybackRefreshRequest,
+  PlaybackRecoverRequest,
   PlaybackResolutionSummary,
   PlaybackSession,
   PlaybackState,
   PlaybackStateUpdate,
+  Profile,
   ProviderAdminView,
   ProviderEventView,
   ProviderHealthCheckReport,
   ProviderValidation,
+  SeasonDetails,
 } from "./types";
 
 
@@ -255,6 +260,72 @@ export function refreshPlayback(
       method: "POST",
       body: JSON.stringify(state),
     },
+  );
+}
+
+
+export function recoverPlayback(identity: PlaybackIdentity, state: PlaybackRecoverRequest) {
+  return request<PlaybackSession>(`${playbackPath(identity)}/recover`, {
+    method: "POST",
+    body: JSON.stringify(state),
+  });
+}
+
+
+export function listProfiles() {
+  return request<Profile[]>("/api/profiles");
+}
+
+
+export function createProfile(name: string) {
+  return request<Profile>("/api/profiles", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+
+export function getTrending(window: "day" | "week" = "day") {
+  return request<CatalogPage>(
+    `/api/catalog/trending?window=${window}`,
+  );
+}
+
+
+export function searchCatalog(query: string, page = 1) {
+  const params = new URLSearchParams({
+    query,
+    page: String(page),
+  });
+  return request<CatalogPage>(
+    `/api/catalog/search?${params.toString()}`,
+  );
+}
+
+
+export function getCatalogDetails(
+  mediaType: "movie" | "tv",
+  tmdbId: number,
+) {
+  return request<CatalogDetails>(
+    `/api/catalog/${mediaType}/${tmdbId}`,
+  );
+}
+
+
+export function getSeasonDetails(
+  tmdbId: number,
+  seasonNumber: number,
+) {
+  return request<SeasonDetails>(
+    `/api/catalog/tv/${tmdbId}/season/${seasonNumber}`,
+  );
+}
+
+
+export function listPlaybackStates(profileId: number) {
+  return request<PlaybackState[]>(
+    `/api/playback/profiles/${profileId}/states`,
   );
 }
 

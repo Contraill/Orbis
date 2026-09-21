@@ -167,3 +167,15 @@ class PlaybackRefreshRequest(PlaybackTransitionRequest):
         min_length=32,
         max_length=128,
     )
+
+
+class PlaybackFailure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    category: Literal["network", "media", "other"] = "other"
+    resource_type: Literal["manifest", "segment", "init", "key", "subtitle", "unknown"] = "unknown"
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    code: int | None = Field(default=None, ge=0, le=99999)
+
+
+class PlaybackRecoverRequest(PlaybackRefreshRequest):
+    failure: PlaybackFailure

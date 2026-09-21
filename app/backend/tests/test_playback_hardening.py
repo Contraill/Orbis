@@ -517,13 +517,12 @@ class PlaybackProxyTests(HardeningTestCase):
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(upstream)
         )
-        with patch(
-            "api.playback_proxy._new_http_client",
-            return_value=client,
+        with (
+            patch("api.playback_proxy._new_http_client", return_value=client),
+            patch("playback.upstream.public_address", return_value="93.184.216.34"),
         ):
             response = self.client.get(
-                f"/api/playback/sources/{entry.session_id}"
-                "?url=http://127.0.0.1/private",
+                f"/api/playback/sources/{entry.session_id}",
                 headers={
                     "Range": "bytes=0-3",
                     "Authorization": "Bearer client-secret",

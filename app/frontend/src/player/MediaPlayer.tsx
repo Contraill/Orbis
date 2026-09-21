@@ -8,11 +8,30 @@ import type shaka from "shaka-player";
 import type {
   AudioTrack,
   PlaybackSource,
+  PlaybackFailure,
   SubtitleSelection,
 } from "../types";
 
 
 type ShakaPlayer = shaka.Player;
+
+const SHAKA_ERROR_CATEGORIES: Record<number, string> = {
+  1: "network",
+  2: "text",
+  3: "media",
+  4: "manifest",
+  5: "streaming",
+  6: "DRM",
+  7: "player",
+  8: "cast",
+  9: "storage",
+  10: "ads",
+};
+
+const SHAKA_ERROR_SEVERITIES: Record<number, string> = {
+  1: "recoverable",
+  2: "critical",
+};
 
 interface MediaPlayerProps {
   source: PlaybackSource;
@@ -25,7 +44,7 @@ interface MediaPlayerProps {
   ) => void;
   onPause: () => void;
   onEnded: () => void;
-  onError: (message: string) => void;
+  onError: (message: string, failure: PlaybackFailure) => void;
 }
 
 
@@ -57,6 +76,89 @@ function textMimeType(format: string | null) {
     default:
       return undefined;
   }
+}
+
+
+function diagnosticValue(value: unknown): string {
+  if (typeof value === "string") {
+    try {
+      const url = new URL(value);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return `${url.origin}${url.pathname}`;
+      }
+    } catch {
+      // The diagnostic value is not a URL.
+    }
+    return value.length > 160
+      ? `${value.slice(0, 157)}…`
+      : value;
+  }
+  if (
+    value === null ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) {
+    return `[${value.slice(0, 4).map(diagnosticValue).join(", ")}]`;
+  }
+  return Object.prototype.toString.call(value);
+}
+
+
+function playbackErrorMessage(error: unknown) {
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      severity?: unknown;
+      category?: unknown;
+      code?: unknown;
+      data?: unknown;
+      message?: unknown;
+    };
+    if (typeof candidate.code === "number") {
+      const category = typeof candidate.category === "number"
+        ? SHAKA_ERROR_CATEGORIES[candidate.category] ??
+          `category ${candidate.category}`
+        : "unknown-category";
+      const severity = typeof candidate.severity === "number"
+        ? SHAKA_ERROR_SEVERITIES[candidate.severity] ??
+          `severity ${candidate.severity}`
+        : "unknown-severity";
+      const data = Array.isArray(candidate.data)
+        ? candidate.data.slice(0, 5).map(
+          (value, index) => `${index}=${diagnosticValue(value)}`,
+        )
+        : [];
+      return (
+        `Shaka ${category} error ${candidate.code} ` +
+        `(${severity}${data.length ? `; ${data.join(", ")}` : ""})`
+      );
+    }
+    if (typeof candidate.message === "string") {
+      return candidate.message;
+    }
+  }
+  return error instanceof Error
+    ? error.message
+    : "Playback source failed";
+}
+
+
+function playbackFailure(error: unknown): PlaybackFailure {
+  const value = (error ?? {}) as { category?: number; code?: number; data?: unknown[] };
+  const data = value.data ?? [];
+  const requestType = value.code === 1001 ? data[4]
+    : value.code === 1002 ? data[2]
+    : value.code === 1003 ? data[1] : undefined;
+  return {
+    category: value.category === 1 ? "network" : value.category === 3 ? "media" : "other",
+    resource_type: requestType === 0 || requestType === 12 ? "manifest"
+      : requestType === 1 ? "segment" : requestType === 6 ? "key" : "unknown",
+    http_status: value.code === 1001 && typeof data[1] === "number" ? data[1] : null,
+    code: typeof value.code === "number" ? value.code : null,
+  };
 }
 
 
@@ -138,12 +240,23 @@ export default function MediaPlayer({
     }
 
     let cancelled = false;
+    let errorReported = false;
+    const initRequests = new Set<string>();
 
-    const reportError = (error: unknown) => {
-      const message = error instanceof Error
-        ? error.message
-        : "Playback source failed";
-      callbacksRef.current.onError(message);
+    const reportError = (error: unknown, terminal = true) => {
+      if (cancelled || errorReported) return;
+      if (!terminal && (error as { severity?: number })?.severity === 1) return;
+      errorReported = true;
+      console.error(playbackErrorMessage(error), error);
+      const failure = playbackFailure(error);
+      const failedUri = (error as { data?: unknown[] })?.data?.[0];
+      if (typeof failedUri === "string" && initRequests.has(failedUri)) {
+        failure.resource_type = "init";
+      }
+      callbacksRef.current.onError(
+        "Playback could not continue",
+        failure,
+      );
     };
 
     if (source.protocol === "http") {
@@ -182,20 +295,28 @@ export default function MediaPlayer({
         shakaPlayer.polyfill.installAll();
 
         if (
-          cancelled ||
           !shakaPlayer.Player.isBrowserSupported()
         ) {
           throw new Error(
             "This browser does not support adaptive playback",
           );
         }
+        if (cancelled) return;
 
-        const player = new shakaPlayer.Player(video);
+        const player = new shakaPlayer.Player();
         playerRef.current = player;
+        await player.attach(video);
+        if (cancelled) return;
+        player.getNetworkingEngine()?.registerRequestFilter((_type, request, context) => {
+          if (context?.type === shakaPlayer.net.NetworkingEngine.AdvancedRequestType.INIT_SEGMENT) {
+            for (const uri of request.uris) initRequests.add(uri);
+          }
+        });
 
         player.addEventListener("error", (event) => {
           reportError(
             (event as CustomEvent<unknown>).detail,
+            false,
           );
         });
 
@@ -232,9 +353,7 @@ export default function MediaPlayer({
           selectedSubtitles,
         );
       } catch (error) {
-        if (!cancelled) {
-          reportError(error);
-        }
+        reportError(error);
       }
     })();
 
@@ -283,6 +402,12 @@ export default function MediaPlayer({
         if (source.protocol === "http") {
           callbacksRef.current.onError(
             "Direct media playback failed",
+            {
+              category: videoRef.current?.error?.code === 2 ? "network" : "media",
+              resource_type: "segment",
+              http_status: null,
+              code: videoRef.current?.error?.code ?? null,
+            },
           );
         }
       }}

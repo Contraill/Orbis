@@ -11,6 +11,7 @@ from core.config import get_settings
 from db.models.provider import ProviderEvent, ProviderState
 from providers.contract import MediaProvider, ProviderError
 from providers.registry import all_providers, get_provider
+from providers.resolution import resolution_broker
 from providers.schemas import (
     PlaybackResolution,
     PlaybackSource,
@@ -410,10 +411,11 @@ class ProviderManager:
             started = perf_counter()
 
             try:
-                sources = await asyncio.wait_for(
-                    resolver(provider),
-                    timeout=get_settings().provider_operation_timeout_seconds,
-                )
+                async with resolution_broker.session():
+                    sources = await asyncio.wait_for(
+                        resolver(provider),
+                        timeout=get_settings().provider_operation_timeout_seconds,
+                    )
 
                 if not sources:
                     raise ProviderError(

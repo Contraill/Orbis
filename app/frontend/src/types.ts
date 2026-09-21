@@ -168,9 +168,75 @@ export interface PlaybackRefreshRequest
   source_session_id: string;
 }
 
+export interface PlaybackFailure {
+  category: "network" | "media" | "other";
+  resource_type: "manifest" | "segment" | "init" | "key" | "subtitle" | "unknown";
+  http_status: number | null;
+  code: number | null;
+}
+
+export interface PlaybackRecoverRequest extends PlaybackRefreshRequest {
+  failure: PlaybackFailure;
+}
+
 export interface ResolutionFailureDetail {
   message: string;
   attempts: ProviderAttempt[];
+}
+
+export interface Profile {
+  id: number;
+  name: string;
+  avatar: string | null;
+}
+
+export type MediaType = "movie" | "tv";
+
+export interface CatalogItem {
+  tmdb_id: number;
+  media_type: MediaType;
+  title: string;
+  original_title: string | null;
+  overview: string;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  release_date: string | null;
+  vote_average: number | null;
+}
+
+export interface CatalogPage {
+  page: number;
+  total_pages: number;
+  results: CatalogItem[];
+}
+
+export interface CatalogDetails extends CatalogItem {
+  genres: string[];
+  runtime_minutes: number | null;
+  status: string | null;
+  number_of_seasons: number | null;
+  number_of_episodes: number | null;
+}
+
+export interface EpisodeSummary {
+  episode_number: number;
+  name: string;
+  overview: string;
+  air_date: string | null;
+  still_url: string | null;
+  runtime_minutes: number | null;
+  vote_average: number | null;
+}
+
+export interface SeasonDetails {
+  series_tmdb_id: number;
+  season_tmdb_id: number;
+  season_number: number;
+  name: string;
+  overview: string;
+  air_date: string | null;
+  poster_url: string | null;
+  episodes: EpisodeSummary[];
 }
 
 export interface LiveProviderState {

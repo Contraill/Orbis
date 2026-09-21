@@ -79,7 +79,7 @@ def source_validation_error(
     if source.protocol not in SUPPORTED_PROTOCOLS:
         return "Source protocol is not supported"
 
-    if source.headers and source.protocol != "http":
+    if (source.headers or source.delivery.egress == "resolution") and source.protocol == "dash":
         return (
             "Adaptive sources with custom headers require manifest "
             "proxying"

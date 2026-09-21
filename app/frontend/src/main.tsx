@@ -15,99 +15,83 @@ import ProviderEditorPage from "./admin/ProviderEditorPage";
 import ProvidersPage from "./admin/ProvidersPage";
 import SettingsPage from "./admin/SettingsPage";
 import TestsPage from "./admin/TestsPage";
+import { ProfileProvider } from "./app/ProfileContext";
+import DetailPage from "./catalog/DetailPage";
+import HomePage from "./catalog/HomePage";
 import PlaybackPage from "./playback/PlaybackPage";
 
 import "./style.css";
 
 
-function Home() {
-  return (
-    <main className="home-page">
-      <section className="home-card">
-        <p className="eyebrow">
-          ORBIS
-        </p>
-
-        <h1>Media App</h1>
-
-        <p className="home-subtitle">
-          Provider-agnostic media platform
-        </p>
-
-        <div className="home-status">
-          <span className="dot" />
-          Frontend online
-        </div>
-
-        <a
-          className="admin-link"
-          href="/admin"
-        >
-          Administration →
-        </a>
-      </section>
-    </main>
-  );
-}
-
-
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-
-        <Route
-          path={
-            "/watch/:profileId/:mediaType/:tmdbId" +
-            "/season/:seasonNumber/episode/:episodeNumber"
-          }
-          element={<PlaybackPage />}
-        />
-
-        <Route
-          path="/watch/:profileId/:mediaType/:tmdbId"
-          element={<PlaybackPage />}
-        />
-
-        <Route
-          path="/admin"
-          element={<AdminShell />}
-        >
-          <Route index element={<OverviewPage />} />
+    <ProfileProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
 
           <Route
-            path="providers"
-            element={<ProvidersPage />}
+            path="/movie/:tmdbId"
+            element={<DetailPage mediaType="movie" />}
           />
 
           <Route
-            path="providers/:providerId"
-            element={<ProviderEditorPage />}
+            path="/tv/:tmdbId"
+            element={<DetailPage mediaType="tv" />}
           />
 
           <Route
-            path="tests"
-            element={<TestsPage />}
+            path={
+              "/watch/:profileId/:mediaType/:tmdbId" +
+              "/season/:seasonNumber/episode/:episodeNumber"
+            }
+            element={<PlaybackPage />}
           />
 
           <Route
-            path="diagnostics"
-            element={<DiagnosticsPage />}
+            path="/watch/:profileId/:mediaType/:tmdbId"
+            element={<PlaybackPage />}
           />
 
           <Route
-            path="settings"
-            element={<SettingsPage />}
-          />
-        </Route>
+            path="/admin"
+            element={<AdminShell />}
+          >
+            <Route index element={<OverviewPage />} />
 
-        <Route
-          path="*"
-          element={<Navigate to="/" replace />}
-        />
-      </Routes>
-    </BrowserRouter>
+            <Route
+              path="providers"
+              element={<ProvidersPage />}
+            />
+
+            <Route
+              path="providers/:providerId"
+              element={<ProviderEditorPage />}
+            />
+
+            <Route
+              path="tests"
+              element={<TestsPage />}
+            />
+
+            <Route
+              path="diagnostics"
+              element={<DiagnosticsPage />}
+            />
+
+            <Route
+              path="settings"
+              element={<SettingsPage />}
+            />
+          </Route>
+
+          <Route
+            path="*"
+            element={<Navigate to="/" replace />}
+          />
+        </Routes>
+      </BrowserRouter>
+    </ProfileProvider>
   );
 }
 

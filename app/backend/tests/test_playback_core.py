@@ -242,6 +242,37 @@ class PlaybackStateApiTests(PlaybackTestCase):
             "tv:202:s1:e3",
         )
 
+    def test_profile_state_list_is_isolated_and_recent_first(self):
+        first_id = self.profile_one.id
+        second_id = self.profile_two.id
+        for profile_id, tmdb_id, position in (
+            (first_id, 10, 20),
+            (first_id, 20, 30),
+            (second_id, 30, 40),
+        ):
+            response = self.client.put(
+                (
+                    f"/api/playback/profiles/{profile_id}"
+                    f"/movie/{tmdb_id}/state"
+                ),
+                json={"position_seconds": position},
+            )
+            self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(
+            f"/api/playback/profiles/{first_id}/states"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["tmdb_id"] for item in response.json()],
+            [20, 10],
+        )
+        missing = self.client.get(
+            "/api/playback/profiles/99999/states"
+        )
+        self.assertEqual(missing.status_code, 404)
+
     def test_completed_and_near_end_state_resume_from_zero(self):
         completed = self.client.put(
             (

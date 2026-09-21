@@ -44,6 +44,12 @@ class SubtitleTrack(BaseModel):
     forced: bool = False
 
 
+class DeliveryHints(BaseModel):
+    # Normalized adapter knowledge, never application routes or platform names.
+    egress: Literal["unknown", "independent", "resolution"] = "unknown"
+    resource_origins: list[str] = Field(default_factory=list, max_length=16)
+
+
 class PlaybackSource(BaseModel):
     provider_id: str
     url: str
@@ -64,6 +70,7 @@ class PlaybackSource(BaseModel):
     )
 
     expires_at: datetime | None = None
+    delivery: DeliveryHints = Field(default_factory=DeliveryHints)
 
 
 class ProviderCapabilities(BaseModel):

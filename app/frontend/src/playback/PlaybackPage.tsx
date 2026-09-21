@@ -8,12 +8,14 @@ import {
 
 import {
   Link,
+  useLocation,
   useParams,
 } from "react-router-dom";
 
 import {
   failoverPlayback,
   refreshPlayback,
+  recoverPlayback,
   resolvePlayback,
   savePlaybackState,
 } from "../api";
@@ -22,6 +24,7 @@ import type {
   AudioKind,
   AudioTrack,
   PlaybackIdentity,
+  PlaybackFailure,
   PlaybackSession,
   PlaybackStateUpdate,
   SubtitleSelection,
@@ -90,6 +93,7 @@ function sameSubtitleTrack(
 
 
 export default function PlaybackPage() {
+  const location = useLocation();
   const {
     profileId,
     mediaType,
@@ -134,6 +138,15 @@ export default function PlaybackPage() {
     seasonNumber,
     episodeNumber,
   ]);
+  const routeState = location.state as {
+    title?: string;
+    returnTo?: string;
+  } | null;
+  const returnTo = routeState?.returnTo ?? (
+    mediaType === "movie"
+      ? `/movie/${tmdbId}`
+      : `/tv/${tmdbId}?season=${seasonNumber ?? 1}`
+  );
 
   const [session, setSession] =
     useState<PlaybackSession | null>(null);
@@ -360,8 +373,9 @@ export default function PlaybackPage() {
 
   const requestReplacement = useCallback(
     async (
-      mode: "failover" | "refresh",
+      mode: "failover" | "refresh" | "recover",
       reason?: string,
+      failure?: PlaybackFailure,
     ) => {
       const latest = latestRef.current;
       if (
@@ -383,6 +397,8 @@ export default function PlaybackPage() {
       setMessage(
         mode === "refresh"
           ? "Refreshing expiring source…"
+          : mode === "recover"
+          ? "Recovering playback…"
           : reason
           ? `Source failed: ${reason}. Trying next provider…`
           : "Trying next provider…",
@@ -396,7 +412,14 @@ export default function PlaybackPage() {
           preferred_subtitle_track_id:
             latest.selectedSubtitle?.track_id ?? null,
         };
-        const next = mode === "refresh"
+        const next = mode === "recover" && failure
+          ? await recoverPlayback(identity, {
+            ...snapshot,
+            ...trackPreferences,
+            source_session_id: latest.session.source_session_id,
+            failure,
+          })
+          : mode === "refresh"
           ? await refreshPlayback(identity, {
             ...snapshot,
             ...trackPreferences,
@@ -416,6 +439,8 @@ export default function PlaybackPage() {
         setMessage(
           mode === "refresh"
             ? "Playback source refreshed"
+            : mode === "recover"
+            ? "Playback recovered"
             : `Switched to ${next.resolution.selected_provider_id}`,
         );
       } catch (failoverError) {
@@ -429,7 +454,12 @@ export default function PlaybackPage() {
             "The current source remains active.",
           );
         } else {
-          setError(errorMessage);
+          setMessage(null);
+          setError(
+            reason
+              ? `${errorMessage}. Initial source error: ${reason}`
+              : errorMessage,
+          );
         }
       } finally {
         transitionRef.current = false;
@@ -502,8 +532,8 @@ export default function PlaybackPage() {
           <p className="banner error-banner">
             {error ?? "Playback is unavailable"}
           </p>
-          <Link className="back-link" to="/">
-            ← Home
+          <Link className="back-link" to={returnTo}>
+            ← Back to details
           </Link>
         </div>
       </main>
@@ -519,18 +549,20 @@ export default function PlaybackPage() {
     <main className="playback-page">
       <header className="playback-header">
         <div>
-          <Link className="back-link" to="/">
-            ← Home
+          <Link className="back-link" to={returnTo}>
+            ← Back to details
           </Link>
           <p className="section-kicker">PLAYBACK</p>
           <h1>
-            {identity.mediaType === "movie"
-              ? `Movie ${identity.tmdbId}`
-              : (
-                `TV ${identity.tmdbId} · ` +
-                `S${identity.seasonNumber}` +
-                `E${identity.episodeNumber}`
-              )}
+            {routeState?.title ?? (
+              identity.mediaType === "movie"
+                ? `Movie ${identity.tmdbId}`
+                : (
+                  `TV ${identity.tmdbId} · ` +
+                  `S${identity.seasonNumber}` +
+                  `E${identity.episodeNumber}`
+                )
+            )}
           </h1>
         </div>
 
@@ -580,8 +612,8 @@ export default function PlaybackPage() {
             completedRef.current = true;
             void persist(true);
           }}
-          onError={(playerError) => {
-            void requestReplacement("failover", playerError);
+          onError={(playerError, failure) => {
+            void requestReplacement("recover", playerError, failure);
           }}
         />
       </section>

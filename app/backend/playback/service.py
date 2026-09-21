@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +11,7 @@ from db.models.playback import (
 )
 from db.models.profile import Profile
 from playback.matching import selections_for_source
+from playback.delivery import delivery_broker
 from playback.schemas import (
     MediaType,
     PlaybackClientSource,
@@ -18,7 +20,6 @@ from playback.schemas import (
     PlaybackStateUpdate,
     PlaybackStateView,
 )
-from playback.source_sessions import source_sessions
 from providers.manager import ProviderManager, provider_manager
 from providers.source_policy import (
     aware_utc,
@@ -93,6 +94,23 @@ def get_playback_state(
             PlaybackState.profile_id == profile_id,
             PlaybackState.content_key == identity.content_key,
         )
+    )
+
+
+def list_playback_states(
+    db: Session,
+    profile_id: int,
+) -> list[PlaybackState]:
+    _require_profile(db, profile_id)
+    return list(
+        db.scalars(
+            select(PlaybackState)
+            .where(PlaybackState.profile_id == profile_id)
+            .order_by(
+                PlaybackState.updated_at.desc(),
+                PlaybackState.id.desc(),
+            )
+        ).all()
     )
 
 
@@ -228,6 +246,7 @@ class PlaybackService:
         require_healthy_source: bool = False,
         preferred_audio_track_id: str | None = None,
         preferred_subtitle_track_id: str | None = None,
+        audience: str = "",
     ) -> PlaybackSession:
         state = get_playback_state(
             db,
@@ -324,31 +343,19 @@ class PlaybackService:
             preferred_subtitle_track_id=stable_subtitle_track_id,
             require_healthy=require_healthy_source,
         )
-        audio, subtitles = selections_for_source(
-            source,
-            preferred_audio_language=(
-                state.preferred_audio_language
-            ),
-            preferred_audio_kind=state.preferred_audio_kind,
-            preferred_audio_track_id=stable_audio_track_id,
-            subtitles_enabled=state.subtitles_enabled,
-            preferred_subtitle_language=(
-                state.preferred_subtitle_language
-            ),
-            preferred_subtitle_track_id=stable_subtitle_track_id,
-        )
-
-        source_session = source_sessions.issue(
+        source_session = delivery_broker.issue(
             profile_id,
             identity.content_key,
             source,
+            audience,
         )
-        client_url = source.url
-        if source.protocol == "http":
-            client_url = (
-                "/api/playback/sources/"
-                f"{source_session.session_id}"
-            )
+        return self.session_view(
+            state, source_session, resolution.attempts,
+            stable_audio_track_id, stable_subtitle_track_id,
+        )
+
+    def session_view(self, state, source_session, attempts, audio_id=None, subtitle_id=None):
+        source = source_session.source
         normalized_expires_at = (
             aware_utc(source.expires_at)
             if source.expires_at is not None
@@ -356,27 +363,39 @@ class PlaybackService:
         )
         client_source = PlaybackClientSource(
             provider_id=source.provider_id,
-            url=client_url,
+            url=delivery_broker.client_url(source_session),
             protocol=source.protocol,
             quality=source.quality,
             audio_tracks=source.audio_tracks,
-            subtitle_tracks=source.subtitle_tracks,
+            subtitle_tracks=delivery_broker.client_subtitles(source_session),
             expires_at=normalized_expires_at,
         )
+        audio, subtitles = selections_for_source(
+            client_source,
+            preferred_audio_language=state.preferred_audio_language,
+            preferred_audio_kind=state.preferred_audio_kind,
+            preferred_audio_track_id=audio_id,
+            subtitles_enabled=state.subtitles_enabled,
+            preferred_subtitle_language=state.preferred_subtitle_language,
+            preferred_subtitle_track_id=subtitle_id,
+        )
+        refresh_at = source_refresh_at(source)
+        session_refresh_at = source_session.retained_until - timedelta(minutes=2)
+        refresh_at = min(refresh_at, session_refresh_at) if refresh_at else session_refresh_at
 
         return PlaybackSession(
             state=state_view(state),
             resolution=PlaybackResolutionSummary(
                 selected_provider_id=(
-                    resolution.selected_provider_id
+                    source.provider_id
                 ),
-                attempts=resolution.attempts,
+                attempts=attempts,
             ),
             selected_source=client_source,
             source_session_id=source_session.session_id,
             source_expires_at=normalized_expires_at,
             source_expiry_status=source_expiry_status(source),
-            refresh_at=source_refresh_at(source),
+            refresh_at=refresh_at,
             selected_audio=audio,
             selected_subtitles=subtitles,
         )
