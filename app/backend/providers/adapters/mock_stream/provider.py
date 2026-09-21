@@ -1,7 +1,9 @@
 from providers.contract import MediaProvider
 from providers.schemas import (
+    AudioTrack,
     PlaybackSource,
     ProviderCapabilities,
+    SubtitleTrack,
     ProviderHealthResult,
     ProviderSearchResult,
 )
@@ -17,6 +19,9 @@ class MockStreamProvider(MediaProvider):
         movie=True,
         episode=True,
         protocols=["hls"],
+        selectable_audio=True,
+        selectable_subtitles=True,
+        burned_in_subtitles=False,
     )
 
     async def health_check(self) -> ProviderHealthResult:
@@ -50,7 +55,25 @@ class MockStreamProvider(MediaProvider):
                 ),
                 protocol="hls",
                 quality="1080p",
-                audio_languages=["en"],
+                audio_tracks=[
+                    AudioTrack(
+                        language="en",
+                        label="English Original",
+                        kind="original",
+                    ),
+                    AudioTrack(
+                        language="tr",
+                        label="Türkçe Dublaj",
+                        kind="dub",
+                    ),
+                ],
+                subtitle_tracks=[
+                    SubtitleTrack(
+                        language="tr",
+                        label="Türkçe",
+                        kind="manifest",
+                    )
+                ],
             )
         ]
 
@@ -69,6 +92,27 @@ class MockStreamProvider(MediaProvider):
                 ),
                 protocol="hls",
                 quality="1080p",
-                audio_languages=["en"],
+                audio_tracks=[
+                    AudioTrack(
+                        language="en",
+                        label="English Original",
+                        kind="original",
+                    ),
+                    AudioTrack(
+                        language="tr",
+                        label="Türkçe Dublaj",
+                        kind="dub",
+                    ),
+                ],
+                subtitle_tracks=[
+                    SubtitleTrack(
+                        language="tr",
+                        label="Türkçe",
+                        kind="manifest",
+                    )
+                ],
             )
         ]
+
+
+PROVIDER = MockStreamProvider()

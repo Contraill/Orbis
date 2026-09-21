@@ -44,3 +44,6 @@ class MockBrokenProvider(MediaProvider):
         episode: int,
     ) -> list[PlaybackSource]:
         raise ProviderUnavailable("Intentional mock failure")
+
+
+PROVIDER = MockBrokenProvider()

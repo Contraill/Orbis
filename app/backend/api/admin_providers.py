@@ -10,7 +10,7 @@ from providers.manager import (
     ResolutionFailed,
     provider_manager,
 )
-from providers.registry import get_provider
+from providers.registry import discovery_errors, get_provider
 from providers.schemas import (
     PlaybackResolution,
     ProviderAdminView,
@@ -52,6 +52,14 @@ def resolution_failed(exc: ResolutionFailed) -> HTTPException:
             ],
         },
     )
+
+
+@router.get(
+    "/discovery-errors",
+    response_model=dict[str, str],
+)
+def provider_discovery_errors():
+    return discovery_errors()
 
 
 @router.get("", response_model=list[ProviderAdminView])
