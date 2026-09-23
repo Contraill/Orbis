@@ -16,6 +16,10 @@ class CatalogItem(BaseModel):
     backdrop_url: str | None = None
     release_date: str | None = None
     vote_average: float | None = None
+    genre_ids: list[int] = Field(default_factory=list)
+    original_language: str | None = None
+    countries: list[str] = Field(default_factory=list)
+    popularity: float = 0
 
 
 class CatalogPage(BaseModel):
@@ -58,6 +62,7 @@ class SeasonSummary(BaseModel):
 
 
 class CatalogDetails(CatalogItem):
+    collection_id: int | None = None
     genre_refs: list[NamedReference] = Field(default_factory=list)
     keywords: list[NamedReference] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)

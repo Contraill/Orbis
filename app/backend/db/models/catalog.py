@@ -16,7 +16,7 @@ class CatalogEntity(Base):
     # Normalized locale-independent features; never raw TMDB payloads.
     features: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, index=True)
 
 
 class CatalogLink(Base):
@@ -63,3 +63,11 @@ class CatalogEpisode(Base):
     tmdb_id: Mapped[int | None] = mapped_column(Integer)
     air_date: Mapped[str | None] = mapped_column(String(10))
     runtime_minutes: Mapped[int | None] = mapped_column(Integer)
+
+
+class CatalogFeature(Base):
+    """Derived inverted feature index; catalog entities remain the authority."""
+    __tablename__ = "catalog_features"
+    term: Mapped[str] = mapped_column(String(160), primary_key=True)
+    media_key: Mapped[str] = mapped_column(ForeignKey("catalog_entities.key", ondelete="CASCADE"), primary_key=True)
+    __table_args__ = (Index("ix_catalog_features_media_key", "media_key"),)

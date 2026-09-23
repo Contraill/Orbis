@@ -6,7 +6,7 @@ from db.models.foundation import LocalizedMetadata
 from db.models.profile import utc_now
 from metadata.index import reindex
 
-FEATURES = ("genre_refs", "keywords", "aliases", "external_ids", "original_language", "countries", "runtime_minutes", "related")
+FEATURES = ("genre_refs", "keywords", "aliases", "external_ids", "original_language", "countries", "runtime_minutes", "related", "popularity", "collection_id")
 
 
 def entity(db, kind, tmdb_id, name, features=None):
@@ -27,7 +27,7 @@ def entity(db, kind, tmdb_id, name, features=None):
     return row
 
 
-def ingest(db, data):
+def ingest(db, data, update_features=True):
     if "series_tmdb_id" in data:
         key = f"tv:{data['series_tmdb_id']}"
         if not db.get(CatalogEntity, key):
@@ -53,6 +53,8 @@ def ingest(db, data):
     key = f"{data['media_type']}:{data['tmdb_id']}"
     old = db.get(CatalogEntity, key)
     features = {k: data[k] for k in FEATURES if k in data}
+    if "genre_refs" not in features and data.get("genre_ids"):
+        features["genre_refs"] = [{"tmdb_id": i, "name": ""} for i in data["genre_ids"]]
     # Alias sets are additive across locale detail fetches.
     if old:
         features["external_ids"] = {**old.features.get("external_ids", {}), **features.get("external_ids", {})}
@@ -80,6 +82,9 @@ def ingest(db, data):
         reindex(db, company.key)
     db.flush()
     reindex(db, row.key)
+    if update_features:
+        from recommendations.features import reindex_features
+        reindex_features(db, row.key)
 
 
 def cached(db, key, locale, details=False):

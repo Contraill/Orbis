@@ -34,6 +34,8 @@ function App() {
         <SetupGate>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/movies" element={<HomePage surface="movies" />} />
+          <Route path="/series" element={<HomePage surface="series" />} />
           <Route path="/profile" element={<ProfileSettings />} />
           <Route path="/profiles/new" element={<AddProfilePage />} />
           <Route path="/library" element={<LibraryPage />} />

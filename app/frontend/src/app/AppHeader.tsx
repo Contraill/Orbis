@@ -18,6 +18,8 @@ export default function AppHeader() {
 
       <nav className="app-nav" aria-label="Main navigation">
         <Link to="/">{t("Browse")}</Link>
+        <Link to="/movies">{t("Movies")}</Link>
+        <Link to="/series">{t("Series")}</Link>
         <Link to="/library">{t("Library")}</Link>
         <Link to="/profile">{t("Profile")}</Link>
         {profile?.is_owner ? <Link to="/admin">{t("Admin")}</Link> : null}

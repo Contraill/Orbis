@@ -492,3 +492,19 @@ export function catalogCredits(kind: "person" | "company", id: number, cursor?: 
   if (cursor) params.set("cursor", cursor);
   return request<SearchPage>(`/api/catalog/${kind}/${id}/credits?${params}`);
 }
+
+export type FeedSurface = "home" | "movies" | "series";
+export type FeedItem = import("./types").CatalogItem & {
+  key: string;
+  resume?: { season_number: number | null; episode_number: number | null; position_seconds: number; action: string } | null;
+};
+export type FeedShelf = { id: string; title: string; kind: string; personalized: boolean; items: FeedItem[] };
+export type FeedPage = { snapshot_id: string; surface: FeedSurface; personalized: boolean; shelves: FeedShelf[]; next_cursor: string | null; warnings: string[] };
+export function getFeed(profileId: number, surface: FeedSurface, cursor?: string) {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  return request<FeedPage>(`/api/feeds/profiles/${profileId}/${surface}?${params}`);
+}
+export function getFeedDiagnostics(profileId: number, snapshot: string) {
+  return request<unknown>(`/api/feeds/profiles/${profileId}/diagnostics/${snapshot}`);
+}

@@ -205,3 +205,30 @@ class DatabaseAndApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/catalog/unified-search?query=matrix&limit=999").status_code, 422)
         self.assertEqual(self.client.get("/api/catalog/items?my_list=true").status_code, 422)
         self.assertEqual(self.client.get("/api/catalog/movie/155/ratings").json(), {"ratings": []})
+
+    def test_feed_http_contract_and_my_list_independence(self):
+        from metadata.schemas import CatalogDetails
+        from metadata.localization import store_metadata
+        profile = self.create_profile("Feed viewer")
+        with self.sessions() as db:
+            for n in range(1, 12):
+                store_metadata(db, "en-US", CatalogDetails(tmdb_id=n, media_type="movie", title=f"Film {n}", genre_refs=[{"tmdb_id": 18, "name": "Drama"}], original_language="en"))
+            db.commit()
+        with patch("recommendations.feeds.warm", new=AsyncMock(return_value=({}, []))):
+            response = self.client.get(f"/api/feeds/profiles/{profile['id']}/movies?batch_size=1")
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["surface"], "movies")
+        self.assertTrue(all(i["media_type"] == "movie" for s in data["shelves"] for i in s["items"]))
+        self.assertNotIn("diagnostics", data)
+        diag = self.client.get(f"/api/feeds/profiles/{profile['id']}/diagnostics/{data['snapshot_id']}")
+        self.assertEqual(diag.status_code, 200)
+        self.assertIn("contributions", diag.json()["candidates"][0])
+        self.assertEqual(self.client.get(f"/api/feeds/profiles/{profile['id']}/my-list").status_code, 422)
+        self.assertEqual(self.client.get(f"/api/feeds/profiles/{profile['id']}/home?batch_size=99").status_code, 422)
+        root = f"/api/library/profiles/{profile['id']}"
+        self.client.put(root + "/my-list", json={"media_type": "movie", "tmdb_id": 1, "enabled": True})
+        saved = self.client.get(root + "/my-list?kind=movie").json()
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0]["tmdb_id"], 1)
+        self.assertNotIn("shelves", saved[0])

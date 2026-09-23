@@ -9,6 +9,7 @@ from api.playback_proxy import router as playback_proxy_router
 from api.setup import router as setup_router
 from core.auth import require_owner
 from api.library import router as library_router
+from api.feeds import router as feeds_router
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
@@ -37,6 +38,7 @@ app.include_router(profiles_router)
 app.include_router(catalog_router)
 app.include_router(setup_router)
 app.include_router(library_router)
+app.include_router(feeds_router)
 app.include_router(admin_providers_router, dependencies=[Depends(require_owner)])
 app.include_router(provider_editor_router, dependencies=[Depends(require_owner)])
 app.include_router(playback_router)

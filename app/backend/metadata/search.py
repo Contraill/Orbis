@@ -134,6 +134,9 @@ async def person_credits(db, client, tmdb_id, locale):
                     db.add(CatalogLink(media_key=key, entity_key=person.key, role=role, character=character))
                 db.flush()
                 reindex(db, key)
+                from recommendations.features import reindex_features
+                reindex_features(db, key)
+                db.get(CatalogEntity, key).updated_at = utc_now()
         reindex(db, person.key)
         save(db, cache_key, {"complete": True})
         db.commit()

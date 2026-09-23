@@ -1,7 +1,7 @@
 """Installation authority, localized metadata and provider-independent library data."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Float, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, CheckConstraint, Float, ForeignKey, Integer, JSON, String, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -38,6 +38,7 @@ class LocalizedMetadata(Base):
 
 class ViewingProgress(Base):
     __tablename__ = "viewing_progress"
+    __table_args__ = (Index("ix_viewing_progress_profile_media", "profile_id", "media_type", "tmdb_id"),)
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
     content_key: Mapped[str] = mapped_column(String(128), primary_key=True)
     media_type: Mapped[str] = mapped_column(String(16))

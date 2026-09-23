@@ -26,7 +26,7 @@ def upgrade():
     connection = op.get_bind()
     with Session(bind=connection) as db:
         for data, in connection.execute(sa.text("SELECT data FROM localized_metadata")).yield_per(100):
-            ingest(db, json.loads(data) if isinstance(data, str) else data)
+            ingest(db, json.loads(data) if isinstance(data, str) else data, update_features=False)
         db.commit()
 
 

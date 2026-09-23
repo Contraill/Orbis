@@ -90,7 +90,6 @@ export default function LibraryPage() {
   return <div className="catalog-shell"><AppHeader /><main className="catalog-main"><h1>{t("Library")}</h1>
     <label htmlFor="library-kind">{t("All")}</label><select id="library-kind" value={kind} onChange={e => setKind(e.target.value)}><option value="all">{t("All")}</option><option value="movie">{t("Movies")}</option><option value="tv">{t("Series")}</option></select>
     {error ? <p role="alert">{error}</p> : null}
-    <ContinueShelf kind={kind} />
     <section className="catalog-section"><h2>{t("My List")}</h2>
       {loading ? <p>{t("Loading…")}</p> : !items.length ? <p>{t("Nothing here yet")}</p> : null}
       {items.map(item => <article className="panel" key={itemKey(item)}><Link to={`/${item.media_type}/${item.tmdb_id}`}>{item.metadata?.title ?? itemKey(item)}</Link><button className="button secondary" disabled={busy} onClick={async () => {

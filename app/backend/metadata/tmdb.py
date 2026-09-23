@@ -55,6 +55,8 @@ def catalog_item(data: dict) -> CatalogItem | None:
         backdrop_url=image_url(data.get("backdrop_path"), "w1280"),
         release_date=release_date or None,
         vote_average=data.get("vote_average"),
+        genre_ids=data.get("genre_ids", []), original_language=data.get("original_language"),
+        countries=data.get("origin_country", []), popularity=data.get("popularity") or 0,
     )
 
 
@@ -266,6 +268,8 @@ def rich_fields(data):
     alternatives = data.get("alternative_titles", {})
     kind = "tv" if "first_air_date" in data or "number_of_seasons" in data else "movie"
     return dict(
+        collection_id=(data.get("belongs_to_collection") or {}).get("id"),
+        popularity=data.get("popularity") or 0,
         genre_refs=refs(data.get("genres", [])),
         keywords=refs(keywords.get("keywords", keywords.get("results", []))),
         aliases=sorted({a["title"] for a in alternatives.get("titles", alternatives.get("results", [])) if a.get("title")}),
