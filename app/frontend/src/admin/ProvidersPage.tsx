@@ -6,10 +6,13 @@ import {
 
 import {
   Link,
+  useNavigate,
 } from "react-router-dom";
 
 import {
   createLiveProvider,
+  createFactoryOverride,
+  deleteLiveProvider,
   listLiveProviders,
   listProviders,
   testProvider,
@@ -29,6 +32,20 @@ import {
 
 
 export default function ProvidersPage() {
+  const navigate = useNavigate();
+
+  async function editFactory(providerId: string) {
+    setBusy(`override:${providerId}`);
+    setError(null);
+    try {
+      await createFactoryOverride(providerId);
+      navigate(`/admin/providers/${providerId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Override creation failed");
+    } finally {
+      setBusy(null);
+    }
+  }
   const [providers, setProviders] =
     useState<ProviderAdminView[]>([]);
 
@@ -118,6 +135,23 @@ export default function ProvidersPage() {
           ? err.message
           : "Create failed",
       );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+
+  async function removeProvider(providerId: string) {
+    if (!window.confirm(`Delete ${providerId}? Its live code, settings and versions will be permanently removed. This cannot be undone.`)) return;
+    setBusy(`delete:${providerId}`);
+    setError(null);
+    setMessage(null);
+    try {
+      await deleteLiveProvider(providerId);
+      await refresh();
+      setMessage(`${providerId} deleted.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
     } finally {
       setBusy(null);
     }
@@ -419,13 +453,24 @@ export default function ProvidersPage() {
                 Test health
               </button>
 
-              {liveIds.has(provider.provider_id) && (
+              {liveIds.has(provider.provider_id) ? (
                 <Link
                   className="button secondary link-button"
                   to={`/admin/providers/${provider.provider_id}`}
                 >
                   Edit
                 </Link>
+              ) : (
+                <button className="button secondary" disabled={busy !== null}
+                  onClick={() => void editFactory(provider.provider_id)}>
+                  Edit / Create Override
+                </button>
+              )}
+              {liveProviders.some(item => item.provider_id === provider.provider_id && !item.is_factory_override) && (
+                <button className="button danger" disabled={busy !== null}
+                  onClick={() => void removeProvider(provider.provider_id)}>
+                  Delete
+                </button>
               )}
             </div>
           </article>
@@ -462,6 +507,10 @@ export default function ProvidersPage() {
                 >
                   Edit draft
                 </Link>
+                {!provider.is_factory_override && <button className="button danger" disabled={busy !== null}
+                  onClick={() => void removeProvider(provider.provider_id)}>
+                  Delete
+                </button>}
               </div>
             ))}
         </article>

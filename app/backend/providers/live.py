@@ -14,6 +14,10 @@ from providers.registry import (
     get_provider,
     registry_lock,
     reload_registry_if_live,
+    reload_registry_if_factory,
+    reload_registry,
+    factory_code,
+    provider_sources,
 )
 
 
@@ -157,6 +161,70 @@ def create_live_provider(
     os.chmod(settings_path, 0o600)
 
     return provider_editor_state(provider_id)
+
+
+def create_factory_override(provider_id: str) -> dict:
+    directory = provider_dir(provider_id)
+    with registry_lock():
+        code = factory_code(provider_id)
+        if code is None:
+            raise LiveProviderNotFound("Factory provider not found")
+        if directory.exists():
+            if not (directory / "factory-override").is_file():
+                raise LiveProviderConflict("Provider directory is not a factory override")
+            return provider_editor_state(provider_id)
+        directory.mkdir(parents=True)
+        (directory / "versions").mkdir()
+        _atomic_write_text(code, directory / "draft.py")
+        _atomic_write_text("{}\n", directory / "settings.json")
+        os.chmod(directory / "settings.json", 0o600)
+        _atomic_write_text(provider_id, directory / "factory-override")
+    return provider_editor_state(provider_id)
+
+
+def revert_to_factory(provider_id: str) -> dict:
+    directory = provider_dir(provider_id)
+    with registry_lock():
+        if factory_code(provider_id) is None or not (directory / "factory-override").is_file():
+            raise LiveProviderNotFound("Factory override not found")
+        active = directory / "active.py"
+        previous = active.read_bytes() if active.is_file() else None
+        if previous is not None:
+            (directory / "versions").mkdir(exist_ok=True)
+            shutil.copy2(active, directory / "versions" / _version_name())
+            active.unlink()
+        try:
+            if not reload_registry_if_factory(provider_id):
+                raise LiveProviderError("Factory provider failed to load")
+        except Exception:
+            _restore_active(active, previous)
+            raise
+    return provider_editor_state(provider_id)
+
+
+def delete_live_provider(provider_id: str) -> None:
+    """Remove only a user-created adapter; factory code is never deletable."""
+    directory = provider_dir(provider_id)
+    with registry_lock():
+        if not directory.is_dir() or directory.is_symlink():
+            raise LiveProviderNotFound("Live provider not found")
+        if factory_code(provider_id) is not None or (directory / "factory-override").exists():
+            raise LiveProviderConflict("Factory providers cannot be deleted; revert to factory instead")
+
+        # Move out of the discovery root before reloading, restoring on failure.
+        staging = Path(tempfile.mkdtemp(prefix="orbis-provider-delete-", dir=LIVE_PROVIDER_ROOT.parent))
+        staged = staging / provider_id
+        try:
+            os.replace(directory, staged)
+            try:
+                reload_registry()
+            except Exception:
+                os.replace(staged, directory)
+                raise
+            shutil.rmtree(staging)
+        finally:
+            if staging.exists() and not staged.exists():
+                staging.rmdir()
 
 
 def save_draft(
@@ -581,6 +649,8 @@ def provider_editor_state(
         ),
         "loaded": provider is not None,
         "has_active": active.is_file(),
+        "is_factory_override": (directory / "factory-override").is_file(),
+        "implementation": provider_sources().get(provider_id),
         "draft_code": (
             draft.read_text(encoding="utf-8")
             if draft.is_file()

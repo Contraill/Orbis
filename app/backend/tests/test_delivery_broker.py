@@ -39,6 +39,62 @@ class Chunks(httpx.AsyncByteStream):
 
 
 class DeliveryTests(HardeningTestCase):
+    def test_mislabeled_ts_is_streamed_unchanged_and_head_range_are_consistent(self):
+        body = (b'\x47' + b'\x00' * 187) * 4
+        requests = []
+        def handler(request):
+            requests.append(request)
+            headers = {'Content-Type':'application/x-mpegURL', 'Content-Length':str(len(body)), 'Accept-Ranges':'bytes'}
+            if request.method == 'HEAD':
+                return httpx.Response(200, headers=headers)
+            data = body
+            status = 200
+            if request.headers.get('range'):
+                first, last = map(int, request.headers['range'].removeprefix('bytes=').split('-'))
+                data = body[first:last + 1]
+                status = 206
+                headers.update({'Content-Length':str(len(data)), 'Content-Range':f'bytes {first}-{last}/{len(body)}'})
+            return httpx.Response(status, headers=headers, stream=Chunks(data[:190], data[190:]))
+        def entry_url():
+            entry = self.entry(DeliveryPlan(ALL_RESOURCES))
+            resource = source_sessions.register(entry, entry.resources['root'], 'https://media.example/part.png', 'segment')
+            return f'/api/playback/sources/{entry.session_id}/{resource.resource_id}'
+        with patch('api.playback_proxy._new_http_client', side_effect=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))):
+            url = entry_url()
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, body)
+            self.assertEqual(response.headers['content-type'], 'video/mp2t')
+            response = self.client.head(url)
+            self.assertEqual(response.headers['content-type'], 'video/mp2t')
+            self.assertEqual(response.content, b'')
+            self.assertEqual(len(requests), 2)  # HEAD reuses the attested MIME, no repeated probe.
+            response = self.client.get(entry_url(), headers={'Range':'bytes=188-375'})
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.content, body[188:376])
+            self.assertEqual(response.headers['content-range'], 'bytes 188-375/752')
+            self.assertEqual(response.headers['content-type'], 'video/mp2t')
+            self.assertEqual(requests[-1].headers['range'], 'bytes=0-563')
+            response = self.client.get(entry_url(), headers={'Range':'bytes=0-63'})
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.content, body[:64])
+            self.assertEqual(response.headers['content-range'], 'bytes 0-63/752')
+            self.assertEqual(response.headers['content-type'], 'video/mp2t')
+            response = self.client.head(entry_url())
+            self.assertEqual(response.headers['content-type'], 'video/mp2t')
+            self.assertEqual(response.headers['content-length'], str(len(body)))
+
+    def test_mislabeled_non_media_fails_closed(self):
+        entry = self.entry(DeliveryPlan(ALL_RESOURCES))
+        resource = source_sessions.register(entry, entry.resources['root'], 'https://media.example/part.png', 'segment')
+        def factory():
+            return httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
+                200, headers={'Content-Type':'application/x-mpegURL'}, stream=Chunks(b'<html>not media</html>'),
+            )))
+        with patch('api.playback_proxy._new_http_client', side_effect=factory):
+            response = self.client.get(f'/api/playback/sources/{entry.session_id}/{resource.resource_id}')
+        self.assertEqual(response.status_code, 502)
+
     def setUp(self):
         super().setUp()
         delivery_policy.clear()
@@ -238,6 +294,54 @@ class DeliveryTests(HardeningTestCase):
 
 
 class PolicyAndSecurityTests(unittest.TestCase):
+    def test_explicit_origin_headers_never_leak_across_redirects(self):
+        requests = []
+        def handler(request):
+            requests.append(request)
+            if len(requests) == 1:
+                return httpx.Response(302, headers={"Location": "https://cdn.example/segment"})
+            if len(requests) == 2:
+                return httpx.Response(302, headers={"Location": "https://other.example/segment"})
+            return httpx.Response(206, stream=Chunks(b"media"))
+        async def run():
+            item = source("generic", "master", headers={"Cookie": "secret", "Authorization": "secret"})
+            item.delivery = DeliveryHints(
+                resource_origins=["https://cdn.example", "https://other.example"],
+                resource_headers={"https://cdn.example": {"User-Agent": "Approved client", "Referer": "https://embed.example/"}},
+            )
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                with patch("playback.upstream.public_address", return_value="93.184.216.34") as dns:
+                    response, _ = await open_upstream(client, item, item.url, range_headers={"Range":"bytes=0-3"})
+                    await response.aclose()
+                    self.assertEqual(dns.call_count, 3)
+        asyncio.run(run())
+        self.assertEqual(requests[1].headers['referer'], 'https://embed.example/')
+        self.assertEqual(requests[1].headers['user-agent'], 'Approved client')
+        for request in requests[1:]:
+            self.assertNotIn('cookie', request.headers)
+            self.assertNotIn('authorization', request.headers)
+            self.assertEqual(request.headers['range'], 'bytes=0-3')
+        self.assertNotIn('referer', requests[2].headers)
+        self.assertNotEqual(requests[2].headers.get('user-agent'), 'Approved client')
+
+    def test_origin_policy_is_bounded_exact_and_non_secret(self):
+        from pydantic import ValidationError
+        invalid = [
+            {'resource_origins':['https://*.example']},
+            {'resource_origins':['https://cdn.example/path']},
+            {'resource_origins':['https://user:pass@cdn.example']},
+            {'resource_origins':[f'https://cdn{i}.example' for i in range(65)]},
+            {'resource_headers':{'https://cdn.example':{'Referer':'https://embed.example/'}}},
+        ]
+        for header in ('Cookie', 'Authorization', 'Host', 'Origin', 'X-Secret'):
+            invalid.append({'resource_origins':['https://cdn.example'], 'resource_headers':{'https://cdn.example':{header:'secret'}}})
+        invalid.append({'resource_origins':['https://cdn.example'], 'resource_headers':{'https://cdn.example':{'Referer':'good\r\nCookie: secret'}}})
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                DeliveryHints(**value)
+        policy = DeliveryHints(resource_origins=[f'https://cdn{i}.example' for i in range(25)])
+        self.assertEqual(len(policy.resource_origins), 25)
+
     def test_cache_is_client_scoped_and_expires_without_sliding(self):
         policy = DeliveryPolicy()
         item = source("generic", "master")

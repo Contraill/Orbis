@@ -62,5 +62,25 @@ class ResolutionBroker:
             active[mode] = self._new(mode)
         return await active[mode].get(url, headers=headers)
 
+    async def probe_media(self, source, url, *, client_factory=None) -> bytes:
+        """Bounded standard HTTP probe using the same exact-origin/DNS policy as delivery.
+
+        Adapters see normalized metadata only; no relay routes or client details.
+        """
+        import asyncio
+        from playback.upstream import new_http_client, open_upstream, UpstreamRejected
+
+        async with asyncio.timeout(5), (client_factory or new_http_client)() as client:
+            response, _ = await open_upstream(client, source, url, range_headers={"Range": "bytes=0-187"})
+            try:
+                if response.status_code not in {200, 206}:
+                    raise UpstreamRejected("Media probe was rejected")
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        return chunk[:188]
+                raise UpstreamRejected("Media probe returned an empty body")
+            finally:
+                await response.aclose()
+
 
 resolution_broker = ResolutionBroker()

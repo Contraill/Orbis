@@ -38,6 +38,7 @@ interface MediaPlayerProps {
   startPosition: number;
   selectedAudio: AudioTrack | null;
   selectedSubtitles: SubtitleSelection;
+  qualityHeight: number | null;
   onProgress: (
     position: number,
     duration: number | null,
@@ -166,9 +167,24 @@ function applySelections(
   player: ShakaPlayer,
   selectedAudio: AudioTrack | null,
   selectedSubtitles: SubtitleSelection,
+  qualityHeight: number | null,
 ) {
-  if (selectedAudio) {
+  // Restrict ABR by logical height, not a volatile Shaka variant ID.
+  // Keep the master URL and networking/recovery hooks intact.
+  const available = player.getVariantTracks().some(track => track.height === qualityHeight);
+  const height = available ? qualityHeight : null;
+  player.configure({ abr: { enabled: true, restrictions: {
+    minHeight: height ?? 0, maxHeight: height ?? Infinity,
+  } } });
+  if (height !== null) {
     const variants = player.getVariantTracks();
+    const active = variants.find(track => track.active);
+    const candidate = variants.find(track => track.height === height && track.language === active?.language)
+      ?? variants.find(track => track.height === height);
+    if (candidate && active?.height !== height) player.selectVariantTrack(candidate, true);
+  }
+  if (selectedAudio) {
+    const variants = player.getVariantTracks().filter(track => height === null || track.height === height);
     const trackId = Number(selectedAudio.track_id);
     const audioById = selectedAudio.track_id !== null &&
       Number.isFinite(trackId)
@@ -209,6 +225,7 @@ export default function MediaPlayer({
   startPosition,
   selectedAudio,
   selectedSubtitles,
+  qualityHeight,
   onProgress,
   onPause,
   onEnded,
@@ -306,6 +323,9 @@ export default function MediaPlayer({
         const player = new shakaPlayer.Player();
         playerRef.current = player;
         await player.attach(video);
+        if (qualityHeight !== null) {
+          player.configure({ abr: { restrictions: { minHeight: qualityHeight, maxHeight: qualityHeight } } });
+        }
         if (cancelled) return;
         player.getNetworkingEngine()?.registerRequestFilter((_type, request, context) => {
           if (context?.type === shakaPlayer.net.NetworkingEngine.AdvancedRequestType.INIT_SEGMENT) {
@@ -351,6 +371,7 @@ export default function MediaPlayer({
           player,
           selectedAudio,
           selectedSubtitles,
+          qualityHeight,
         );
       } catch (error) {
         reportError(error);
@@ -372,9 +393,10 @@ export default function MediaPlayer({
         player,
         selectedAudio,
         selectedSubtitles,
+        qualityHeight,
       );
     }
-  }, [selectedAudio, selectedSubtitles]);
+  }, [selectedAudio, selectedSubtitles, qualityHeight]);
 
   const externalTrack = source.protocol === "http"
     ? selectedSubtitles.selected_track

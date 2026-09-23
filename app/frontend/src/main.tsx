@@ -21,14 +21,22 @@ import HomePage from "./catalog/HomePage";
 import PlaybackPage from "./playback/PlaybackPage";
 
 import "./style.css";
+import SetupGate from "./app/SetupGate";
+import ProfileSettings from "./app/ProfileSettings";
+import AddProfilePage from "./app/AddProfilePage";
+import LibraryPage from "./catalog/LibraryPage";
 
 
 function App() {
   return (
     <ProfileProvider>
       <BrowserRouter>
+        <SetupGate>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/profile" element={<ProfileSettings />} />
+          <Route path="/profiles/new" element={<AddProfilePage />} />
+          <Route path="/library" element={<LibraryPage />} />
 
           <Route
             path="/movie/:tmdbId"
@@ -90,6 +98,7 @@ function App() {
             element={<Navigate to="/" replace />}
           />
         </Routes>
+        </SetupGate>
       </BrowserRouter>
     </ProfileProvider>
   );

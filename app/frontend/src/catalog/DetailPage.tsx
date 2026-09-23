@@ -16,6 +16,8 @@ import {
 } from "../api";
 import AppHeader from "../app/AppHeader";
 import { useProfile } from "../app/ProfileContext";
+import { useText } from "../app/i18n";
+import { ListActions } from "./LibraryPage";
 import type {
   CatalogDetails,
   MediaType,
@@ -71,6 +73,7 @@ export default function DetailPage({
   const { tmdbId } = useParams();
   const id = parseId(tmdbId);
   const { profile } = useProfile();
+  const t = useText();
   const profileId = profile?.id ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSeason = parseSelectableSeason(
@@ -231,7 +234,7 @@ export default function DetailPage({
           } : undefined}
         >
           <div className="detail-copy">
-            <Link className="back-link" to="/">← Browse</Link>
+            <Link className="back-link" to="/">← {t("Browse")}</Link>
             <p className="section-kicker">
               {mediaType === "movie" ? "MOVIE" : "TV SERIES"}
             </p>
@@ -261,13 +264,14 @@ export default function DetailPage({
                     returnTo: `/movie/${id}`,
                   }}
                 >
-                  ▶ {actionLabel(movieState)}
+                  ▶ {t(actionLabel(movieState))}
                 </Link>
                 {progressLabel(movieState) ? (
                   <span>{progressLabel(movieState)}</span>
                 ) : null}
               </div>
             ) : null}
+            <ListActions item={{ media_type: mediaType, tmdb_id: id }} />
           </div>
         </section>
 
@@ -275,13 +279,13 @@ export default function DetailPage({
           <section className="episodes-section">
             <div className="catalog-section-heading season-heading">
               <div>
-                <p className="section-kicker">EPISODES</p>
+                <p className="section-kicker">{t("Episodes")}</p>
                 <h2>
                   {activeSeason?.name ?? `Season ${seasonNumber}`}
                 </h2>
               </div>
               <label className="season-select">
-                <span>Season</span>
+                <span>{t("Season")}</span>
                 <select
                   value={seasonNumber}
                   onChange={(event) => {
@@ -290,7 +294,7 @@ export default function DetailPage({
                 >
                   {seasons.map((number) => (
                     <option key={number} value={number}>
-                      Season {number}
+                      {t("Season")} {number}
                     </option>
                   ))}
                 </select>
@@ -360,7 +364,7 @@ export default function DetailPage({
                         returnTo: `/tv/${id}?season=${seasonNumber}`,
                       }}
                     >
-                      {actionLabel(episodeState)}
+                      {t(actionLabel(episodeState))}
                     </Link>
                   </article>
                 );

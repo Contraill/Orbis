@@ -76,6 +76,9 @@ async def open_upstream(client, source, url, *, method="GET", range_headers=None
             name: value for name, value in source.headers.items()
             if name.lower() not in HOP_HEADERS
         } if current_origin == origin(source.url) else {}
+        # Per-origin non-secret grants are explicit and re-evaluated on every hop.
+        # No credential inheritance from the original source or previous redirect.
+        headers.update(source.delivery.resource_headers.get(current_origin, {}))
         headers.update(range_headers or {})
         headers["Accept-Encoding"] = "identity"
         target = httpx.URL(url)

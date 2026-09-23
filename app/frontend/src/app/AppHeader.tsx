@@ -1,21 +1,26 @@
 import { Link } from "react-router-dom";
 
 import { useProfile } from "./ProfileContext";
+import { useText } from "./i18n";
+import ProfileAvatar from "./ProfileAvatar";
 
 
 export default function AppHeader() {
   const { profile, clearProfile } = useProfile();
+  const t = useText();
 
   return (
     <header className="app-header">
       <Link className="app-brand" to="/">
-        <span className="app-brand-mark">M</span>
-        <span>Media App</span>
+        <span className="app-brand-mark">O</span>
+        <span>Orbis</span>
       </Link>
 
       <nav className="app-nav" aria-label="Main navigation">
-        <Link to="/">Browse</Link>
-        <Link to="/admin">Admin</Link>
+        <Link to="/">{t("Browse")}</Link>
+        <Link to="/library">{t("Library")}</Link>
+        <Link to="/profile">{t("Profile")}</Link>
+        {profile?.is_owner ? <Link to="/admin">{t("Admin")}</Link> : null}
         {profile ? (
           <button
             className="profile-chip"
@@ -23,7 +28,7 @@ export default function AppHeader() {
             onClick={clearProfile}
             aria-label={`Switch profile. Current profile: ${profile.name}`}
           >
-            <span>{profile.name.slice(0, 1).toUpperCase()}</span>
+            <ProfileAvatar seed={profile.avatar_seed} size={32} />
             {profile.name}
           </button>
         ) : null}

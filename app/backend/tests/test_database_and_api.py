@@ -43,6 +43,9 @@ class DatabaseAndApiTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_db
         self.client = TestClient(app)
+        bootstrap = self.client.post("/api/setup/owner", json={"name": "Owner", "password": "test-owner-password"})
+        self.assertEqual(bootstrap.status_code, 201, bootstrap.text)
+        self.client.headers["Authorization"] = "Bearer " + bootstrap.json()["token"]
 
     def tearDown(self):
         self.client.close()

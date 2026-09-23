@@ -1601,3 +1601,12 @@ select:focus {
     width: 100%;
   }
 }
+/* Foundation forms deliberately reuse the existing dark panels and buttons. */
+.foundation-page { max-width: 980px; }
+.foundation-form { display: grid; gap: 16px; max-width: 620px; }
+.foundation-form label { display: grid; gap: 8px; }
+.foundation-form input, .foundation-form select { width: 100%; min-height: 42px; }
+.foundation-form .checkbox-row { display: flex; align-items: center; gap: 12px; }
+.foundation-form .checkbox-row input { width: 22px; min-height: 22px; }
+.foundation-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 16px 0; }
+.foundation-page .panel { margin-bottom: 24px; }

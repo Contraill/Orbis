@@ -2,6 +2,8 @@ import {
   NavLink,
   Outlet,
 } from "react-router-dom";
+import { useProfile } from "../app/ProfileContext";
+import OwnerLogin from "../app/OwnerLogin";
 
 
 const tabs = [
@@ -14,12 +16,14 @@ const tabs = [
 
 
 export default function AdminShell() {
+  const { admin } = useProfile();
+  if (!admin) return <main className="admin-shell"><a href="/">← Orbis</a><OwnerLogin /></main>;
   return (
     <main className="admin-shell">
       <header className="admin-header">
         <div>
           <a className="back-link" href="/">
-            ← Media App
+            ← Orbis
           </a>
 
           <p className="eyebrow">

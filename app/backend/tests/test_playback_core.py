@@ -100,6 +100,9 @@ class PlaybackProvider(MediaProvider):
 
 class PlaybackTestCase(unittest.TestCase):
     def setUp(self):
+        discovery = patch("playback.choices.discover_qualities", return_value=[])
+        discovery.start()
+        self.addCleanup(discovery.stop)
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},

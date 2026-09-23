@@ -21,11 +21,18 @@ from providers.live import (
     save_draft,
     save_settings,
     validate_draft,
+    create_factory_override,
+    revert_to_factory,
+    delete_live_provider,
 )
 from providers.registry import (
     discovery_errors,
     reload_registry,
 )
+from db.models.provider import ProviderState
+from db.session import get_db
+from fastapi import Depends, Response
+from sqlalchemy.orm import Session
 
 
 router = APIRouter(
@@ -126,6 +133,35 @@ def provider_editor(provider_id: str):
         return provider_editor_state(
             provider_id
         )
+    except LiveProviderError as exc:
+        handle_error(exc)
+
+
+@router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_provider(provider_id: str, db: Session = Depends(get_db)):
+    try:
+        delete_live_provider(provider_id)
+    except LiveProviderError as exc:
+        handle_error(exc)
+    state = db.get(ProviderState, provider_id)
+    if state is not None:
+        db.delete(state)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{provider_id}/override")
+def create_override(provider_id: str):
+    try:
+        return create_factory_override(provider_id)
+    except LiveProviderError as exc:
+        handle_error(exc)
+
+
+@router.post("/{provider_id}/revert-to-factory")
+def revert_factory(provider_id: str):
+    try:
+        return revert_to_factory(provider_id)
     except LiveProviderError as exc:
         handle_error(exc)
 

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from playback.hls import read_manifest, rewrite_manifest
+from playback.media_types import MISLABELED_MEDIA_TYPES, SNIFF_BYTES, media_type, probe_media_type
 from playback.source_sessions import SourceSessionExpired, SourceSessionNotFound, source_sessions
 from playback.upstream import UpstreamRejected, new_http_client, open_upstream
 
@@ -19,9 +20,11 @@ UPSTREAM_RESPONSE_HEADERS = {
 _new_http_client = new_http_client
 
 
-async def _body(upstream, client):
+async def _body(upstream, client, iterator=None, prefix=b""):
     try:
-        async for chunk in upstream.aiter_raw():
+        if prefix:
+            yield prefix
+        async for chunk in iterator if iterator is not None else upstream.aiter_raw():
             yield chunk
     finally:
         await upstream.aclose()
@@ -86,16 +89,38 @@ async def proxy_playback_source(session_id: str, request: Request, resource_id: 
             raise UpstreamRejected("Unexpected active content")
         if resource.kind == "key":
             headers["content-type"] = "application/octet-stream"
+        iterator, prefix = None, b""
+        if (resource.kind in {"segment", "init"}
+            and content_type in MISLABELED_MEDIA_TYPES
+            and upstream.status_code in {200, 206}):
+            known = session.context.setdefault("media_types", {})
+            detected = known.get(resource.resource_id)
+            if detected is None:
+                starts_at_zero = upstream.status_code == 200 or upstream.headers.get("content-range", "").startswith("bytes 0-")
+                if request.method == "GET" and starts_at_zero:
+                    iterator = upstream.aiter_raw(chunk_size=16 * 1024)
+                    async with asyncio.timeout(5):
+                        prefix = await anext(iterator, b"")
+                    detected = media_type(prefix)
+                    if detected is None and upstream.status_code == 206 and len(prefix) < SNIFF_BYTES:
+                        # A caller's short Range must not become a container-sniffing failure.
+                        detected = await probe_media_type(client, session.source, resource)
+                    if detected is None:
+                        raise UpstreamRejected("Unrecognized media container")
+                else:
+                    detected = await probe_media_type(client, session.source, resource)
+                known[resource.resource_id] = detected
+            headers["content-type"] = detected
         if request.method == "HEAD":
             await upstream.aclose()
             await client.aclose()
             return Response(status_code=upstream.status_code, headers=headers)
-        return StreamingResponse(_body(upstream, client), status_code=upstream.status_code, headers=headers)
+        return StreamingResponse(_body(upstream, client, iterator, prefix), status_code=upstream.status_code, headers=headers)
     except BaseException as exc:
         if upstream is not None:
             await upstream.aclose()
         await client.aclose()
-        if isinstance(exc, (httpx.HTTPError, OSError, UpstreamRejected)):
+        if isinstance(exc, (httpx.HTTPError, OSError, UpstreamRejected, TimeoutError)):
             logger.info("delivery_failed session=%s kind=%s reason=%s", session_id[:8], resource.kind, type(exc).__name__)
             raise HTTPException(502, "Playback resource could not be loaded") from exc
         raise

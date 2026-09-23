@@ -11,8 +11,9 @@ import {
 import {
   createProfile as createProfileRequest,
   listProfiles,
+  getSetup, ownerSession, logoutOwner,
 } from "../api";
-import type { Profile } from "../types";
+import type { Profile, ProfileInput, SetupStatus } from "../types";
 
 
 const STORAGE_KEY = "media-app.selected-profile.v1";
@@ -25,8 +26,11 @@ interface ProfileContextValue {
   error: string | null;
   selectProfile: (profileId: number) => void;
   clearProfile: () => void;
-  createProfile: (name: string) => Promise<Profile>;
+  createProfile: (profile: ProfileInput) => Promise<Profile>;
   reload: () => Promise<void>;
+  setup: SetupStatus | null;
+  admin: boolean;
+  authenticate: (token: string) => Promise<void>;
 }
 
 
@@ -46,6 +50,8 @@ export function ProfileProvider({
   children: ReactNode;
 }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
+  const [adminId, setAdminId] = useState<number | null>(null);
   const [selectedId, setSelectedId] =
     useState<number | null>(storedProfileId);
   const [loading, setLoading] = useState(true);
@@ -55,8 +61,13 @@ export function ProfileProvider({
     setLoading(true);
     setError(null);
     try {
-      const nextProfiles = await listProfiles();
+      const [nextProfiles, nextSetup] = await Promise.all([listProfiles(), getSetup()]);
       setProfiles(nextProfiles);
+      setSetup(nextSetup);
+      if (sessionStorage.getItem("orbis.owner-session")) {
+        try { setAdminId((await ownerSession()).owner_id); }
+        catch { sessionStorage.removeItem("orbis.owner-session"); setAdminId(null); }
+      }
       setSelectedId((current) => {
         if (
           current !== null &&
@@ -83,20 +94,37 @@ export function ProfileProvider({
   }, [reload]);
 
   const selectProfile = useCallback((profileId: number) => {
+    if (adminId !== null && adminId !== profileId) {
+      void logoutOwner().catch(() => {});
+      sessionStorage.removeItem("orbis.owner-session");
+      setAdminId(null);
+    }
     setSelectedId(profileId);
     window.localStorage.setItem(
       STORAGE_KEY,
       String(profileId),
     );
-  }, []);
+  }, [adminId]);
 
   const clearProfile = useCallback(() => {
+    if (sessionStorage.getItem("orbis.owner-session")) void logoutOwner().catch(() => {});
+    sessionStorage.removeItem("orbis.owner-session");
+    setAdminId(null);
     setSelectedId(null);
     window.localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  const createProfile = useCallback(async (name: string) => {
-    const created = await createProfileRequest(name);
+  const authenticate = useCallback(async (token: string) => {
+    sessionStorage.setItem("orbis.owner-session", token);
+    const session = await ownerSession();
+    setAdminId(session.owner_id);
+    setSelectedId(session.owner_id);
+    localStorage.setItem(STORAGE_KEY, String(session.owner_id));
+    await reload();
+  }, [reload]);
+
+  const createProfile = useCallback(async (values: ProfileInput) => {
+    const created = await createProfileRequest(values);
     setProfiles((current) => [...current, created]);
     selectProfile(created.id);
     return created;
@@ -105,6 +133,8 @@ export function ProfileProvider({
   const profile = profiles.find(
     (item) => item.id === selectedId,
   ) ?? null;
+  const admin = Boolean(profile?.is_owner && adminId === profile.id);
+  useEffect(() => { document.documentElement.lang = profile?.locale ?? setup?.locale ?? "en-US"; }, [profile?.locale, setup?.locale]);
 
   const value = useMemo<ProfileContextValue>(() => ({
     profiles,
@@ -115,6 +145,7 @@ export function ProfileProvider({
     clearProfile,
     createProfile,
     reload,
+    setup, admin, authenticate,
   }), [
     profiles,
     profile,
@@ -124,6 +155,7 @@ export function ProfileProvider({
     clearProfile,
     createProfile,
     reload,
+    setup, admin, authenticate,
   ]);
 
   return (

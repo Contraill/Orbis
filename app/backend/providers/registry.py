@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import pkgutil
 import sys
 from pathlib import Path
@@ -127,7 +128,10 @@ def _discover_live(
                     f"{provider_id}"
                 )
 
-            if provider.id in discovered:
+            if provider.id in discovered and not (
+                sources.get(provider.id) == "builtin"
+                and (directory / "factory-override").is_file()
+            ):
                 raise ValueError(
                     f"Provider id conflicts with "
                     f"an existing provider: {provider.id}"
@@ -144,6 +148,26 @@ def _discover_live(
 
 def registry_lock() -> RLock:
     return _REGISTRY_LOCK
+
+
+def factory_code(provider_id: str) -> str | None:
+    """Read the shipped adapter, never the currently installed override."""
+    providers, sources, errors = {}, {}, {}
+    _discover_builtin(providers, sources, errors)
+    provider = providers.get(provider_id)
+    if provider is None:
+        return None
+    module = importlib.import_module(type(provider).__module__)
+    return inspect.getsource(module)
+
+
+def reload_registry_if_factory(provider_id: str) -> bool:
+    with _REGISTRY_LOCK:
+        discovered, sources, errors = _discover_registry()
+        if sources.get(provider_id) != "builtin":
+            return False
+        _install_registry(discovered, sources, errors)
+        return True
 
 
 def _discover_registry() -> tuple[

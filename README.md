@@ -1,4 +1,4 @@
-# Media App
+# Orbis
 
 Self-hosted, provider-agnostic media streaming platform.
 
@@ -13,11 +13,11 @@ Early development. The initial Docker bootstrap is operational.
 - SQLite + SQLAlchemy + Alembic
 - Docker Compose
 - TMDB metadata
-- Shaka Player (planned)
+- Shaka Player
 
 ## Architecture
 
-Media App keeps the core application independent from individual content providers.
+Orbis keeps the core application independent from individual content providers.
 Providers are isolated, replaceable adapters behind the backend playback layer.
 
 Core flow:
@@ -39,6 +39,11 @@ The backend applies Alembic migrations before starting. Runtime databases, logs,
 cache files, provider code, provider settings, and `.env` stay outside Git.
 
 ## Verification
+
+Profile bootstrap, owner credential migration and library/activity contracts are
+documented in [Profile and activity foundation](docs/profile-activity-foundation.md).
+Existing installations must set their owner password locally with
+`docker compose exec backend python -m core.owner` before using administration.
 
 Run the backend suite against the application image:
 

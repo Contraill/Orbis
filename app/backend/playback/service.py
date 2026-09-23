@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from db.models.playback import (
 from db.models.profile import Profile
 from playback.matching import selections_for_source
 from playback.delivery import delivery_broker
+from playback.choices import ranked_choices, set_session_choices, selected_height
 from playback.schemas import (
     MediaType,
     PlaybackClientSource,
@@ -19,11 +20,12 @@ from playback.schemas import (
     PlaybackSession,
     PlaybackStateUpdate,
     PlaybackStateView,
+    PlaybackPreferences,
+    PlaybackChoices,
 )
 from providers.manager import ProviderManager, provider_manager
 from providers.source_policy import (
     aware_utc,
-    select_source,
     source_expiry_status,
     source_refresh_at,
 )
@@ -153,6 +155,10 @@ def _apply_update(
     state.preferred_subtitle_language = (
         update.preferred_subtitle_language
     )
+    for name in PlaybackPreferences.model_fields:
+        # Old clients saving progress must not silently reset newer preferences.
+        if name in update.model_fields_set:
+            setattr(state, name, getattr(update, name))
 
 
 def upsert_playback_state(
@@ -160,7 +166,12 @@ def upsert_playback_state(
     profile_id: int,
     identity: ContentIdentity,
     update: PlaybackStateUpdate,
+    *,
+    record_activity: bool = False,
 ) -> PlaybackState:
+    if record_activity and db.bind.dialect.name == "sqlite" and not db.in_transaction():
+        # Serialize the read/modify/write of resume + evidence, including first saves.
+        db.execute(text("BEGIN IMMEDIATE"))
     _require_profile(db, profile_id)
     state = get_playback_state(
         db,
@@ -180,6 +191,9 @@ def upsert_playback_state(
         )
         db.add(state)
 
+    if record_activity:
+        from activity.service import record_progress
+        record_progress(db, profile_id, identity, update)
     _apply_update(state, update)
 
     try:
@@ -194,6 +208,8 @@ def upsert_playback_state(
         )
         if state is None:
             raise
+        if record_activity:
+            record_progress(db, profile_id, identity, update)
         _apply_update(state, update)
         db.commit()
 
@@ -226,6 +242,7 @@ def state_view(state: PlaybackState) -> PlaybackStateView:
             else state.position_seconds
         ),
         updated_at=state.updated_at,
+        **{name: getattr(state, name) for name in PlaybackPreferences.model_fields},
     )
 
 
@@ -254,7 +271,7 @@ class PlaybackService:
             identity,
         )
         preferred_provider_id = (
-            state.last_provider_id
+            state.preferred_provider_id or state.last_provider_id
             if state is not None
             else None
         )
@@ -286,7 +303,11 @@ class PlaybackService:
             )
 
         if state is None:
+            profile = db.get(Profile, profile_id)
             update = PlaybackStateUpdate(
+                preferred_audio_language=profile.preferred_audio_language,
+                preferred_subtitle_language=profile.preferred_subtitle_language,
+                subtitles_enabled=profile.subtitles_enabled,
                 last_provider_id=(
                     resolution.selected_provider_id
                 )
@@ -309,6 +330,7 @@ class PlaybackService:
                 preferred_subtitle_language=(
                     state.preferred_subtitle_language
                 ),
+                **{name: getattr(state, name) for name in PlaybackPreferences.model_fields},
             )
 
         state = upsert_playback_state(
@@ -329,26 +351,26 @@ class PlaybackService:
             == preferred_provider_id
             else None
         )
-        source = select_source(
+        source = ranked_choices(
             resolution.sources,
-            preferred_audio_language=(
-                state.preferred_audio_language
-            ),
-            preferred_audio_kind=state.preferred_audio_kind,
+            state,
             preferred_audio_track_id=stable_audio_track_id,
-            subtitles_enabled=state.subtitles_enabled,
-            preferred_subtitle_language=(
-                state.preferred_subtitle_language
-            ),
             preferred_subtitle_track_id=stable_subtitle_track_id,
             require_healthy=require_healthy_source,
-        )
+        )[0]
         source_session = delivery_broker.issue(
             profile_id,
             identity.content_key,
             source,
             audience,
         )
+        providers = [
+            {"provider_id": provider.provider_id, "label": provider.name}
+            for provider in self.manager.list_providers(db)
+            if provider.enabled and getattr(provider.capabilities, "movie" if identity.media_type == "movie" else "episode")
+        ]
+        await set_session_choices(source_session, resolution.sources, providers, state)
+        source_session.context["excluded_provider_ids"] = set(excluded_provider_ids or ())
         return self.session_view(
             state, source_session, resolution.attempts,
             stable_audio_track_id, stable_subtitle_track_id,
@@ -363,6 +385,8 @@ class PlaybackService:
         )
         client_source = PlaybackClientSource(
             provider_id=source.provider_id,
+            source_id=source.source_id,
+            source_label=source.source_label,
             url=delivery_broker.client_url(source_session),
             protocol=source.protocol,
             quality=source.quality,
@@ -398,7 +422,26 @@ class PlaybackService:
             refresh_at=refresh_at,
             selected_audio=audio,
             selected_subtitles=subtitles,
+            choices=source_session.context.get("choices", PlaybackChoices()).model_copy(update={
+                "selected_quality_height": selected_height(
+                    source_session.context.get("choices", PlaybackChoices()).qualities,
+                    state.preferred_quality_height,
+                ),
+            }),
         )
+
+    async def next_source(self, state, previous, audio_id=None, subtitle_id=None):
+        # Consume the server-held candidate pool, never retry an already failed URL.
+        sources = [s for s in previous.context.get("sources", []) if s.url != previous.source.url]
+        ranked = ranked_choices(sources, state)
+        if not ranked:
+            return None
+        replacement = delivery_broker.issue(state.profile_id, state.content_key, ranked[0], previous.audience)
+        choices = previous.context.get("choices", PlaybackChoices())
+        await set_session_choices(replacement, sources, choices.providers, state)
+        replacement.context["excluded_provider_ids"] = previous.context.get("excluded_provider_ids", set())
+        # Track IDs are not portable between hosts; logical language/kind survive.
+        return self.session_view(state, replacement, [])
 
 
 playback_service = PlaybackService()

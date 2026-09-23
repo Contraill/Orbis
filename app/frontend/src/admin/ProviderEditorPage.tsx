@@ -16,6 +16,7 @@ import {
   saveProviderDraft,
   saveProviderSettings,
   validateProviderDraft,
+  revertToFactory,
 } from "../api";
 
 import type {
@@ -310,6 +311,26 @@ export default function ProviderEditorPage() {
             : "DRAFT"}
         </span>
       </div>
+
+      {provider.is_factory_override && (
+        <div className="panel">
+          <p>Factory override · Active implementation: {provider.implementation === "live" ? "Override" : "Factory"}</p>
+          <button className="button secondary" disabled={busy || provider.implementation !== "live"}
+            onClick={async () => {
+              if (!window.confirm("Restore the factory provider? Your draft and versions will be kept.")) return;
+              setBusy(true);
+              setError(null);
+              try {
+                setProvider(await revertToFactory(providerId));
+                setMessage("Factory provider restored. Draft and versions retained.");
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Revert failed");
+              } finally { setBusy(false); }
+            }}>
+            Revert to Factory
+          </button>
+        </div>
+      )}
 
       <nav className="provider-editor-tabs">
         {(

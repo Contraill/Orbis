@@ -57,6 +57,8 @@ class SourceSession:
     resource_index: dict[tuple[str, str], str] = field(default_factory=dict)
     recovery_attempts: set[str] = field(default_factory=set)
     evidence: list[dict] = field(default_factory=list)
+    # Server-only alternatives and normalized choices survive delivery recovery.
+    context: dict = field(default_factory=dict)
 
 
 class SourceSessionRegistry:

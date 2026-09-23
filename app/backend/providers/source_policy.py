@@ -79,7 +79,7 @@ def source_validation_error(
     if source.protocol not in SUPPORTED_PROTOCOLS:
         return "Source protocol is not supported"
 
-    if (source.headers or source.delivery.egress == "resolution") and source.protocol == "dash":
+    if (source.headers or source.delivery.resource_headers or source.delivery.egress == "resolution") and source.protocol == "dash":
         return (
             "Adaptive sources with custom headers require manifest "
             "proxying"
@@ -232,6 +232,7 @@ def rank_sources(
             ),
             -quality_score(source.quality),
             -protocol_scores[source.protocol],
+            bool(source.headers or source.delivery.resource_headers or source.delivery.egress == "resolution"),
             -expires_at,
             source.url,
         )

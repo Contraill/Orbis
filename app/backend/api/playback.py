@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from db.session import get_db
 from playback.schemas import (
+    PlaybackChoices,
     PlaybackFailoverRequest,
     PlaybackRefreshRequest,
     PlaybackRecoverRequest,
@@ -34,6 +35,7 @@ from playback.source_sessions import (
 from providers.manager import ResolutionFailed
 from providers.source_policy import source_expiry_status
 from playback.delivery import DeliveryUnavailable, delivery_broker
+from playback.choices import ranked_choices, set_session_choices
 
 
 router = APIRouter(
@@ -100,6 +102,7 @@ def _put_state(
                 profile_id,
                 identity,
                 payload,
+                record_activity=True,
             )
         )
     except ProfileNotFoundError:
@@ -156,6 +159,7 @@ async def _continue_playback(
 ) -> PlaybackSession:
     update = PlaybackStateUpdate(
         **payload.model_dump(
+            exclude_unset=True,
             exclude={
                 "failed_provider_id",
                 "source_session_id",
@@ -235,7 +239,7 @@ async def _recover(db, profile_id, identity, payload):
     if source_expiry_status(source_session.source) == "expired":
         return await _refresh(db, profile_id, identity, payload)
     try:
-        update = PlaybackStateUpdate(**payload.model_dump(include=set(PlaybackStateUpdate.model_fields)))
+        update = PlaybackStateUpdate(**payload.model_dump(include=set(PlaybackStateUpdate.model_fields), exclude_unset=True))
         update.last_provider_id = source_session.source.provider_id
         state = upsert_playback_state(db, profile_id, identity, update)
         async with asyncio.timeout(30):
@@ -247,12 +251,52 @@ async def _recover(db, profile_id, identity, payload):
     except ProfileNotFoundError:
         raise _profile_not_found()
     except (DeliveryUnavailable, TimeoutError):
+        alternative = await playback_service.next_source(
+            state, source_session, payload.preferred_audio_track_id,
+            payload.preferred_subtitle_track_id,
+        )
+        if alternative is not None:
+            return alternative
         return await _continue_playback(
             db, profile_id, identity, payload,
             current_provider_id=source_session.source.provider_id,
-            excluded_provider_ids={source_session.source.provider_id},
+            excluded_provider_ids=set(source_session.context.get("excluded_provider_ids", ())) | {source_session.source.provider_id},
             audience=source_session.audience,
         )
+
+
+async def _choose(db, profile_id, identity, payload):
+    try:
+        previous = source_sessions.get(payload.source_session_id, profile_id=profile_id, content_key=identity.content_key)
+    except (SourceSessionNotFound, SourceSessionScopeError):
+        raise HTTPException(404, "Playback source session not found")
+    try:
+        update = PlaybackStateUpdate(**payload.model_dump(include=set(PlaybackStateUpdate.model_fields), exclude_unset=True))
+        update.last_provider_id = previous.source.provider_id
+        state = upsert_playback_state(db, profile_id, identity, update)
+        if state.preferred_provider_id and state.preferred_provider_id != previous.source.provider_id:
+            return await _resolve(db, profile_id, identity, previous.audience)
+        candidates = ranked_choices(previous.context.get("sources", [previous.source]), state)
+        if not candidates:
+            return await _resolve(db, profile_id, identity, previous.audience)
+        if candidates[0].url == previous.source.url:
+            return playback_service.session_view(state, previous, [], payload.preferred_audio_track_id, payload.preferred_subtitle_track_id)
+        replacement = delivery_broker.issue(profile_id, identity.content_key, candidates[0], previous.audience)
+        await set_session_choices(replacement, candidates, previous.context.get("choices", PlaybackChoices()).providers, state)
+        replacement.context["excluded_provider_ids"] = previous.context.get("excluded_provider_ids", set())
+        return playback_service.session_view(state, replacement, [])
+    except ProfileNotFoundError:
+        raise _profile_not_found()
+
+
+@router.post("/movie/{tmdb_id}/choices", response_model=PlaybackSession)
+async def choose_movie(payload: PlaybackRefreshRequest, profile_id: int = Path(gt=0), tmdb_id: int = Path(gt=0), db: Session = Depends(get_db)):
+    return await _choose(db, profile_id, movie_identity(tmdb_id), payload)
+
+
+@router.post("/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/choices", response_model=PlaybackSession)
+async def choose_episode(payload: PlaybackRefreshRequest, profile_id: int = Path(gt=0), tmdb_id: int = Path(gt=0), season_number: int = Path(ge=0), episode_number: int = Path(gt=0), db: Session = Depends(get_db)):
+    return await _choose(db, profile_id, episode_identity(tmdb_id, season_number, episode_number), payload)
 
 
 @router.get(

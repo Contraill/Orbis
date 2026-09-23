@@ -116,6 +116,9 @@ class SequencedProvider(MediaProvider):
 
 class HardeningTestCase(unittest.TestCase):
     def setUp(self):
+        discovery = patch("playback.choices.discover_qualities", return_value=[])
+        discovery.start()
+        self.addCleanup(discovery.stop)
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},
@@ -577,6 +580,14 @@ class PlaybackProxyTests(HardeningTestCase):
                 self.profile.id,
                 movie_identity(901),
             ))
+            self.assertEqual(self.client.post("/api/admin/providers/secure/resolve-test/movie/901").status_code, 401)
+            from core.auth import issue_session
+            from db.models.foundation import Installation
+            self.profile.is_owner = True
+            self.db.add(Installation(id=1, locale="en-US", owner_id=self.profile.id))
+            token = issue_session(self.db, self.profile.id)
+            self.db.commit()
+            self.client.headers["Authorization"] = "Bearer " + token
             admin_response = self.client.post(
                 "/api/admin/providers/secure/resolve-test/movie/901"
             )

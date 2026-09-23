@@ -113,6 +113,11 @@ class PlaybackState(Base):
         nullable=True,
     )
 
+    preferred_provider_id: Mapped[str | None] = mapped_column(String(80))
+    preferred_source_provider_id: Mapped[str | None] = mapped_column(String(80))
+    preferred_source_id: Mapped[str | None] = mapped_column(String(80))
+    preferred_quality_height: Mapped[int | None] = mapped_column(Integer)
+
     preferred_audio_kind: Mapped[str | None] = mapped_column(
         String(24),
         nullable=True,

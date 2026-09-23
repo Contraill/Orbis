@@ -111,6 +111,7 @@ class DeliveryBroker:
             "client_error_code": failure.code,
             "server_probe": "success",
         }])
+        replacement.context.update(session.context)
         return replacement
 
 

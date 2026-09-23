@@ -44,7 +44,7 @@ class DeliveryPolicy:
         return audience, source.provider_id, parsed.netloc, parsed.path
 
     def choose(self, source: PlaybackSource, audience: str = "", *, now=None):
-        if source.headers or source.delivery.egress == "resolution":
+        if source.headers or source.delivery.resource_headers or source.delivery.egress == "resolution":
             return DeliveryPlan(ALL_RESOURCES)
         now = now or utc_now()
         with self._lock:

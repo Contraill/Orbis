@@ -11,16 +11,32 @@ import type {
   PlaybackState,
   PlaybackStateUpdate,
   Profile,
+  ProfileInput,
   ProviderAdminView,
   ProviderEventView,
   ProviderHealthCheckReport,
   ProviderValidation,
   SeasonDetails,
+  SetupStatus, ContentSelection, LibraryItem, ContinueEntry, HistoryEntry,
 } from "./types";
 
 
 const PROVIDERS = "/api/admin/providers";
 const EDITOR = "/api/admin/provider-editor";
+
+export function createFactoryOverride(providerId: string) {
+  return request<LiveProviderState>(`${EDITOR}/${encodeURIComponent(providerId)}/override`, { method: "POST" });
+}
+
+export function revertToFactory(providerId: string) {
+  return request<LiveProviderState>(`${EDITOR}/${encodeURIComponent(providerId)}/revert-to-factory`, { method: "POST" });
+}
+
+export function choosePlayback(identity: PlaybackIdentity, payload: PlaybackRefreshRequest) {
+  return request<PlaybackSession>(`${playbackPath(identity)}/choices`, {
+    method: "POST", body: JSON.stringify(payload),
+  });
+}
 
 
 function playbackPath(identity: PlaybackIdentity) {
@@ -56,11 +72,17 @@ export class ApiError extends Error {
 }
 
 
-async function request<T>(
+export async function request<T>(
   url: string,
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
+  const token = sessionStorage.getItem("orbis.owner-session");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (url.startsWith("/api/catalog/")) {
+    const profileId = localStorage.getItem("media-app.selected-profile.v1");
+    if (profileId) url += `${url.includes("?") ? "&" : "?"}profile_id=${encodeURIComponent(profileId)}`;
+  }
 
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -115,8 +137,23 @@ async function request<T>(
     );
   }
 
-  return response.json() as Promise<T>;
+  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
+
+export const getSetup = () => request<SetupStatus>("/api/setup");
+export const setSetupLocale = (locale: Profile["locale"]) => request("/api/setup/locale", { method: "PUT", body: JSON.stringify({ locale }) });
+export const bootstrapOwner = (name: string, password: string, locale?: Profile["locale"]) => request<{ owner_id: number; token: string }>("/api/setup/owner", { method: "POST", body: JSON.stringify({ name, password, locale }) });
+export const loginOwner = (password: string) => request<{ owner_id: number; token: string }>("/api/setup/login", { method: "POST", body: JSON.stringify({ password }) });
+export const ownerSession = () => request<{ owner_id: number }>("/api/setup/session");
+export const logoutOwner = () => request("/api/setup/logout", { method: "POST" });
+export const editProfile = (id: number, values: Partial<Omit<Profile, "id" | "is_owner">>) => request<Profile>(`/api/profiles/${id}`, { method: "PATCH", body: JSON.stringify(values) });
+const library = (id: number) => `/api/library/profiles/${id}`;
+export const getContinue = (id: number, kind = "all") => request<ContinueEntry[]>(`${library(id)}/continue?kind=${kind}`);
+export const hideContinue = (id: number, item: ContentSelection) => request(`${library(id)}/continue/hide`, { method: "POST", body: JSON.stringify(item) });
+export const getMyList = (id: number, kind = "all") => request<LibraryItem[]>(`${library(id)}/my-list?kind=${kind}`);
+export const getHistory = (id: number) => request<HistoryEntry[]>(`${library(id)}/history`);
+export const setListIntent = (id: number, item: ContentSelection, enabled: boolean, negative = false) => request(`${library(id)}/${negative ? "not-interested" : "my-list"}`, { method: "PUT", body: JSON.stringify({ ...item, enabled }) });
+export const restartPlayback = (id: number, item: ContentSelection & { season_number?: number | null; episode_number?: number | null }) => request(`${library(id)}/restart`, { method: "POST", body: JSON.stringify(item) });
 
 
 export function listProviders() {
@@ -277,10 +314,10 @@ export function listProfiles() {
 }
 
 
-export function createProfile(name: string) {
+export function createProfile(profile: ProfileInput) {
   return request<Profile>("/api/profiles", {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(profile),
   });
 }
 
@@ -345,6 +382,13 @@ export function createLiveProvider(
       provider_id: providerId,
       name,
     }),
+  });
+}
+
+
+export function deleteLiveProvider(providerId: string) {
+  return request<void>(`${EDITOR}/${encodeURIComponent(providerId)}`, {
+    method: "DELETE",
   });
 }
 

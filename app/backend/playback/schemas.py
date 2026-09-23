@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from providers.schemas import (
     AudioKind,
@@ -24,7 +24,21 @@ def normalize_language(value: str | None) -> str | None:
     return normalized or None
 
 
-class PlaybackStateUpdate(BaseModel):
+class PlaybackPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preferred_provider_id: str | None = Field(default=None, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    preferred_source_provider_id: str | None = Field(default=None, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    preferred_source_id: str | None = Field(default=None, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    preferred_quality_height: int | None = Field(default=None, ge=144, le=8640)
+
+    @model_validator(mode="after")
+    def source_scope(self):
+        if bool(self.preferred_source_id) != bool(self.preferred_source_provider_id):
+            raise ValueError("Source preference requires its provider scope")
+        return self
+
+
+class PlaybackStateUpdate(PlaybackPreferences):
     model_config = ConfigDict(extra="forbid")
 
     position_seconds: float = Field(
@@ -76,7 +90,7 @@ class PlaybackStateUpdate(BaseModel):
         return normalized or None
 
 
-class PlaybackStateView(BaseModel):
+class PlaybackStateView(PlaybackPreferences):
     model_config = ConfigDict(from_attributes=True)
 
     profile_id: int
@@ -124,6 +138,8 @@ class PlaybackResolutionSummary(BaseModel):
 
 class PlaybackClientSource(BaseModel):
     provider_id: str
+    source_id: str | None = None
+    source_label: str | None = None
     url: str
     protocol: PlaybackProtocol
     quality: str | None = None
@@ -142,6 +158,29 @@ class PlaybackSession(BaseModel):
     refresh_at: datetime | None
     selected_audio: AudioSelection
     selected_subtitles: SubtitleSelection
+    choices: "PlaybackChoices" = Field(default_factory=lambda: PlaybackChoices())
+
+
+class QualityChoice(BaseModel):
+    height: int
+    label: str
+
+
+class SourceChoice(BaseModel):
+    source_id: str
+    label: str
+
+
+class ProviderChoice(BaseModel):
+    provider_id: str
+    label: str
+
+
+class PlaybackChoices(BaseModel):
+    providers: list[ProviderChoice] = Field(default_factory=list)
+    sources: list[SourceChoice] = Field(default_factory=list)
+    qualities: list[QualityChoice] = Field(default_factory=list)
+    selected_quality_height: int | None = None
 
 
 class PlaybackTransitionRequest(PlaybackStateUpdate):

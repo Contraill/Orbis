@@ -125,6 +125,82 @@ class LiveProviderTests(unittest.TestCase):
             "builtin",
         )
 
+    def test_factory_override_lifecycle_keeps_identity_and_factory(self):
+        factory = registry.get_provider("mock-stream")
+        created = live.create_factory_override("mock-stream")
+        self.assertTrue(created["is_factory_override"])
+        self.assertFalse(created["has_active"])
+        self.assertIs(registry.get_provider("mock-stream"), factory)
+        # Repeated create must not overwrite an edited draft.
+        live.save_draft("mock-stream", self.code("mock-stream", "Override One"))
+        self.assertIn("Override One", live.create_factory_override("mock-stream")["draft_code"])
+        live.activate_draft("mock-stream")
+        self.assertEqual(registry.get_provider("mock-stream").name, "Override One")
+        live.save_draft("mock-stream", self.code("mock-stream", "Override Two"))
+        live.activate_draft("mock-stream")
+        version = live.list_versions("mock-stream")[0]
+        live.rollback_provider("mock-stream", version)
+        self.assertEqual(registry.get_provider("mock-stream").name, "Override One")
+        reverted = live.revert_to_factory("mock-stream")
+        self.assertEqual(reverted["implementation"], "builtin")
+        self.assertFalse(reverted["has_active"])
+        self.assertIs(registry.get_provider("mock-stream"), factory)
+        self.assertTrue(reverted["versions"])
+        registry.reload_registry()
+        self.assertIs(registry.get_provider("mock-stream"), factory)
+
+    def test_failed_override_leaves_factory_working(self):
+        factory = registry.get_provider("mock-stream")
+        live.create_factory_override("mock-stream")
+        live.save_draft("mock-stream", "broken !!!")
+        with self.assertRaises(live.LiveProviderValidationError):
+            live.activate_draft("mock-stream")
+        self.assertIs(registry.get_provider("mock-stream"), factory)
+        live.save_draft("mock-stream", 'if __name__.startswith("_media_app_live_"):\n    raise RuntimeError("fail")\n' + self.code("mock-stream", "broken"))
+        with self.assertRaises(live.LiveProviderValidationError):
+            live.activate_draft("mock-stream")
+        self.assertIs(registry.get_provider("mock-stream"), factory)
+        self.assertFalse((self.root / "mock-stream" / "active.py").exists())
+
+    def test_failed_revert_preserves_active_override(self):
+        live.create_factory_override("mock-stream")
+        live.save_draft("mock-stream", self.code("mock-stream", "Working Override"))
+        live.activate_draft("mock-stream")
+        active = self.root / "mock-stream" / "active.py"
+        before = active.read_bytes()
+        with patch.object(live, "reload_registry_if_factory", return_value=False):
+            with self.assertRaises(live.LiveProviderError):
+                live.revert_to_factory("mock-stream")
+        self.assertEqual(active.read_bytes(), before)
+        self.assertEqual(registry.get_provider("mock-stream").name, "Working Override")
+
+    def test_delete_live_provider_removes_active_and_draft_but_not_factory(self):
+        live.create_live_provider("remove-active", "Removable")
+        live.activate_draft("remove-active")
+        self.assertIsNotNone(registry.get_provider("remove-active"))
+        live.delete_live_provider("remove-active")
+        self.assertFalse((self.root / "remove-active").exists())
+        self.assertIsNone(registry.get_provider("remove-active"))
+        live.create_live_provider("remove-draft", "Draft")
+        live.delete_live_provider("remove-draft")
+        self.assertFalse((self.root / "remove-draft").exists())
+        with self.assertRaises(live.LiveProviderNotFound):
+            live.delete_live_provider("remove-draft")
+        live.create_factory_override("mock-stream")
+        with self.assertRaises(live.LiveProviderConflict):
+            live.delete_live_provider("mock-stream")
+        self.assertTrue((self.root / "mock-stream" / "draft.py").exists())
+        self.assertIsNotNone(registry.get_provider("mock-stream"))
+
+    def test_failed_delete_restores_active_and_registry(self):
+        live.create_live_provider("keep-active", "Working")
+        live.activate_draft("keep-active")
+        with patch.object(live, "reload_registry", side_effect=RuntimeError("reload failed")):
+            with self.assertRaises(RuntimeError):
+                live.delete_live_provider("keep-active")
+        self.assertTrue((self.root / "keep-active" / "active.py").exists())
+        self.assertIsNotNone(registry.get_provider("keep-active"))
+
     def test_rollback_updates_active_and_draft(self):
         live.create_live_provider("rollback-test", "Version One")
         live.activate_draft("rollback-test")

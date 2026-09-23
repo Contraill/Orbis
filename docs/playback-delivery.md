@@ -70,11 +70,16 @@ validated IP with the original Host/TLS hostname, preventing a second DNS lookup
 from rebinding the target. HTTPS downgrades are rejected. Source credentials are
 forwarded only to the source origin. Client cookies, Authorization, Referer and
 arbitrary headers are never forwarded; only Range and If-Range are accepted.
+Adapters may explicitly grant non-secret User-Agent/Referer headers to exact
+allowlisted origins through `delivery.resource_headers`; grants are re-evaluated
+on every redirect and never inherited. The origin list is bounded to 64.
 
 Manifest bodies are capped at 1 MiB and rewritten using their final upstream URL
 as the relative-URI base. Segment/key/init bodies stream with backpressure; they
 are not buffered as whole media files. Nginx response buffering is disabled.
 Range, content type, content length and content range are retained for resources.
+An attested HLS media resource with an incorrect playlist/image Content-Type can
+be normalized using bounded container-byte detection, without altering media bytes.
 Rewritten manifests do not reuse upstream ETags or lengths.
 
 Limits: 256 source sessions, 4096 resources per session, 32768 total resources,

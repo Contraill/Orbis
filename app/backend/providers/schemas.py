@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 PlaybackProtocol = Literal["hls", "dash", "http"]
@@ -47,11 +48,46 @@ class SubtitleTrack(BaseModel):
 class DeliveryHints(BaseModel):
     # Normalized adapter knowledge, never application routes or platform names.
     egress: Literal["unknown", "independent", "resolution"] = "unknown"
-    resource_origins: list[str] = Field(default_factory=list, max_length=16)
+    resource_origins: list[str] = Field(default_factory=list, max_length=64)
+    # Only non-secret headers, explicitly scoped by a trusted adapter. Never inherited.
+    resource_headers: dict[str, dict[str, str]] = Field(default_factory=dict, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_resource_policy(self):
+        def canonical(value):
+            parsed = urlsplit(value)
+            if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or "*" in value or "\\" in value or any(ord(c) <= 32 for c in value)
+                or parsed.username is not None or parsed.password is not None
+                or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
+                or parsed.port not in {None, 80, 443}):
+                raise ValueError("Expected an exact HTTP(S) origin")
+            return f"{parsed.scheme}://{parsed.hostname}:{parsed.port or (443 if parsed.scheme == 'https' else 80)}"
+
+        origins = list(dict.fromkeys(canonical(item) for item in self.resource_origins))
+        headers = {}
+        for target, values in self.resource_headers.items():
+            target = canonical(target)
+            if target not in origins:
+                raise ValueError("Resource headers require an explicitly trusted origin")
+            scoped = {}
+            for name, value in values.items():
+                if name.lower() not in {"user-agent", "referer"}:
+                    raise ValueError("Only User-Agent and Referer may cross origins")
+                if not value or len(value) > 2048 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+                    raise ValueError("Invalid resource header")
+                scoped[name.lower()] = value
+            headers[target] = scoped
+        self.resource_origins = origins
+        self.resource_headers = headers
+        return self
 
 
 class PlaybackSource(BaseModel):
     provider_id: str
+    # Stable adapter-local host/player key, never an embed/video/session ID.
+    source_id: str | None = Field(default=None, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    source_label: str | None = Field(default=None, max_length=100)
     url: str
     protocol: PlaybackProtocol
 

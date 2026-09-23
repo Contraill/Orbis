@@ -10,6 +10,7 @@ import {
   Link,
   useLocation,
   useParams,
+  useNavigate,
 } from "react-router-dom";
 
 import {
@@ -18,8 +19,11 @@ import {
   recoverPlayback,
   resolvePlayback,
   savePlaybackState,
+  choosePlayback,
+  getContinue,
 } from "../api";
 import MediaPlayer from "../player/MediaPlayer";
+import { useProfile } from "../app/ProfileContext";
 import type {
   AudioKind,
   AudioTrack,
@@ -93,6 +97,8 @@ function sameSubtitleTrack(
 
 
 export default function PlaybackPage() {
+  const { profile: activeProfile } = useProfile();
+  const navigate = useNavigate();
   const location = useLocation();
   const {
     profileId,
@@ -178,6 +184,11 @@ export default function PlaybackPage() {
   const transitionRef = useRef(false);
   const saveInFlightRef = useRef<Promise<void> | null>(null);
   const completedRef = useRef(false);
+  const routeGeneration = useRef(0);
+  useEffect(() => {
+    routeGeneration.current += 1;
+    return () => { routeGeneration.current += 1; };
+  }, [identity]);
   const latestRef = useRef({
     currentTime,
     duration,
@@ -299,6 +310,10 @@ export default function PlaybackPage() {
         subtitles_enabled: latest.subtitlesEnabled,
         preferred_subtitle_language:
           latest.subtitleLanguage,
+        preferred_provider_id: latest.session.state.preferred_provider_id ?? null,
+        preferred_source_provider_id: latest.session.state.preferred_source_provider_id ?? null,
+        preferred_source_id: latest.session.state.preferred_source_id ?? null,
+        preferred_quality_height: latest.session.state.preferred_quality_height ?? null,
       };
     },
     [],
@@ -315,7 +330,9 @@ export default function PlaybackPage() {
       }
 
       if (saveInFlightRef.current) {
-        return saveInFlightRef.current;
+        // Do not drop the final completion behind an ordinary periodic save.
+        return completed === undefined ? saveInFlightRef.current
+          : saveInFlightRef.current.then(() => persist(completed, keepalive));
       }
 
       const snapshot = stateSnapshot(completed);
@@ -517,6 +534,36 @@ export default function PlaybackPage() {
     };
   }, [session, subtitlesEnabled, selectedSubtitle]);
 
+  async function changeChoice(preference: Partial<PlaybackStateUpdate>) {
+    const latest = latestRef.current;
+    const snapshot = stateSnapshot();
+    if (!identity || !latest.session || !snapshot || transitionRef.current) return;
+    transitionRef.current = true;
+    setFailoverBusy(true);
+    setError(null);
+    try {
+      await saveInFlightRef.current;
+      const next = await choosePlayback(identity, {
+        ...snapshot, ...preference,
+        source_session_id: latest.session.source_session_id,
+        preferred_audio_track_id: latest.selectedAudio?.track_id ?? null,
+        preferred_subtitle_track_id: latest.selectedSubtitle?.track_id ?? null,
+      });
+      if (next.source_session_id === latest.session.source_session_id) {
+        // Quality-only changes do not reload the manifest or reset delivery recovery.
+        setSession({ ...next, selected_source: latest.session.selected_source });
+      } else {
+        applySession(next, latestRef.current.currentTime);
+      }
+      setMessage("Playback preferences updated. Unavailable preferences fall back automatically.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Choice could not be applied");
+    } finally {
+      transitionRef.current = false;
+      setFailoverBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="playback-page playback-centered">
@@ -594,6 +641,7 @@ export default function PlaybackPage() {
           startPosition={sourceStartPosition}
           selectedAudio={selectedAudio}
           selectedSubtitles={subtitleSelection}
+          qualityHeight={session.choices.selected_quality_height}
           onProgress={(position, nextDuration) => {
             setCurrentTime(position);
             setDuration(nextDuration);
@@ -609,8 +657,17 @@ export default function PlaybackPage() {
           }}
           onPause={() => void persist()}
           onEnded={() => {
+            const generation = routeGeneration.current;
             completedRef.current = true;
-            void persist(true);
+            void (async () => {
+              await persist(true);
+              if (generation !== routeGeneration.current) return;
+              if (identity?.mediaType !== "tv" || activeProfile?.id !== identity.profileId || !activeProfile.autoplay_next_episode) return;
+              try {
+                const next = (await getContinue(identity.profileId, "tv")).find(item => item.tmdb_id === identity.tmdbId && item.action === "next_episode");
+                if (next && generation === routeGeneration.current) navigate(`/watch/${identity.profileId}/tv/${next.tmdb_id}/season/${next.season_number}/episode/${next.episode_number}`);
+              } catch { /* An unavailable next episode never invalidates the completed one. */ }
+            })();
           }}
           onError={(playerError, failure) => {
             void requestReplacement("recover", playerError, failure);
@@ -619,6 +676,38 @@ export default function PlaybackPage() {
       </section>
 
       <section className="playback-controls panel">
+        <label>Provider
+          <select disabled={failoverBusy} value={session.state.preferred_provider_id ?? ""}
+            onChange={(event) => void changeChoice({ preferred_provider_id: event.target.value || null, preferred_source_id: null, preferred_source_provider_id: null })}>
+            <option value="">Auto</option>
+            {session.state.preferred_provider_id && !session.choices.providers.some(p => p.provider_id === session.state.preferred_provider_id) && (
+              <option value={session.state.preferred_provider_id}>{session.state.preferred_provider_id} (unavailable)</option>
+            )}
+            {session.choices.providers.map(p => <option key={p.provider_id} value={p.provider_id}>{p.label}</option>)}
+          </select>
+        </label>
+        <label>Source
+          <select disabled={failoverBusy} value={session.state.preferred_source_id ?? ""}
+            onChange={(event) => void changeChoice({ preferred_source_id: event.target.value || null, preferred_source_provider_id: event.target.value ? source.provider_id : null })}>
+            <option value="">Auto</option>
+            {session.state.preferred_source_id && (session.state.preferred_source_provider_id !== source.provider_id || !session.choices.sources.some(s => s.source_id === session.state.preferred_source_id)) && (
+              <option value={session.state.preferred_source_id}>{session.state.preferred_source_id} (unavailable)</option>
+            )}
+            {session.choices.sources.filter(s => session.state.preferred_source_provider_id === source.provider_id || s.source_id !== session.state.preferred_source_id).map(s => <option key={s.source_id} value={s.source_id}>{s.label}</option>)}
+          </select>
+          <small>Current: {source.source_label ?? source.source_id ?? "Default"}</small>
+        </label>
+        <label>Quality
+          <select disabled={failoverBusy} value={session.state.preferred_quality_height ?? ""}
+            onChange={(event) => void changeChoice({ preferred_quality_height: event.target.value ? Number(event.target.value) : null })}>
+            <option value="">Auto</option>
+            {session.state.preferred_quality_height && !session.choices.qualities.some(q => q.height === session.state.preferred_quality_height) && (
+              <option value={session.state.preferred_quality_height}>{session.state.preferred_quality_height}p (unavailable)</option>
+            )}
+            {session.choices.qualities.map(q => <option key={q.height} value={q.height}>{q.label}</option>)}
+          </select>
+          <small>Applied: {session.choices.selected_quality_height ? `${session.choices.selected_quality_height}p` : "Auto"}</small>
+        </label>
         <div>
           <span className="control-label">Position</span>
           <strong>

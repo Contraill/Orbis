@@ -82,6 +82,8 @@ export interface SubtitleTrack {
 }
 
 export interface PlaybackSource {
+  source_id: string | null;
+  source_label: string | null;
   provider_id: string;
   url: string;
   protocol: "hls" | "dash" | "http";
@@ -105,6 +107,10 @@ export interface PlaybackIdentity {
 }
 
 export interface PlaybackStateUpdate {
+  preferred_provider_id?: string | null;
+  preferred_source_provider_id?: string | null;
+  preferred_source_id?: string | null;
+  preferred_quality_height?: number | null;
   position_seconds: number;
   duration_seconds: number | null;
   completed: boolean;
@@ -138,6 +144,12 @@ export interface SubtitleSelection {
 }
 
 export interface PlaybackSession {
+  choices: {
+    providers: { provider_id: string; label: string }[];
+    sources: { source_id: string; label: string }[];
+    qualities: { height: number; label: string }[];
+    selected_quality_height: number | null;
+  };
   state: PlaybackState;
   resolution: PlaybackResolutionSummary;
   selected_source: PlaybackSource;
@@ -188,6 +200,30 @@ export interface Profile {
   id: number;
   name: string;
   avatar: string | null;
+  avatar_seed: string;
+  locale: "en-US" | "tr-TR";
+  is_owner: boolean;
+  preferred_audio_language: string | null;
+  preferred_subtitle_language: string | null;
+  subtitles_enabled: boolean;
+  autoplay_next_episode: boolean;
+  trailer_muted: boolean;
+  onboarding_seeds: ContentSelection[];
+}
+
+export interface ContentSelection { media_type: "movie" | "tv"; tmdb_id: number }
+export type ProfileInput = Omit<Profile, "id" | "is_owner">;
+export interface SetupStatus { locale: Profile["locale"]; setup_required: boolean; owner_id: number | null; owner_password_configured: boolean }
+export interface LibraryItem extends ContentSelection { metadata: CatalogItem | null; listed_at?: string }
+export interface ContinueEntry extends LibraryItem {
+  profile_id: number; season_number: number | null; episode_number: number | null;
+  position_seconds: number; duration_seconds: number | null; completed: boolean;
+  action: "resume" | "next_episode"; updated_at: string;
+}
+export interface HistoryEntry extends LibraryItem {
+  content_key: string; season_number: number | null; episode_number: number | null;
+  started_at: string; last_watched_at: string; watched_seconds: number; meaningful: boolean;
+  completions: number; rewatches: number;
 }
 
 export type MediaType = "movie" | "tv";
@@ -240,6 +276,8 @@ export interface SeasonDetails {
 }
 
 export interface LiveProviderState {
+  is_factory_override: boolean;
+  implementation: "builtin" | "live" | null;
   provider_id: string;
   name: string;
   loaded: boolean;

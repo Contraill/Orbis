@@ -59,6 +59,9 @@ def catalog_item(data: dict) -> CatalogItem | None:
 
 
 class TMDBClient:
+    def __init__(self, locale: str | None = None):
+        self.locale = locale
+
     async def _get(
         self,
         path: str,
@@ -71,7 +74,7 @@ class TMDBClient:
 
         request_params = {
             "api_key": settings.tmdb_api_key,
-            "language": settings.tmdb_language,
+            "language": self.locale or settings.tmdb_language,
         }
 
         if params:
