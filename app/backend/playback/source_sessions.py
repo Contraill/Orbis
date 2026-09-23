@@ -117,6 +117,15 @@ class SourceSessionRegistry:
             self._sessions[session.session_id] = session
         return session
 
+    def revoke_client(self, client_id):
+        with self._lock:
+            for key in [k for k, s in self._sessions.items() if s.context.get("client_session_id") == client_id]:
+                del self._sessions[key]
+
+    def discard(self, session_id):
+        with self._lock:
+            self._sessions.pop(session_id, None)
+
     def register(self, session, parent, url, kind):
         allowed = {origin(session.source.url), *(origin(item) for item in session.source.delivery.resource_origins)}
         if origin(url) not in allowed:

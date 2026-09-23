@@ -39,6 +39,8 @@ interface MediaPlayerProps {
   selectedAudio: AudioTrack | null;
   selectedSubtitles: SubtitleSelection;
   qualityHeight: number | null;
+  maxHeight?: number | null;
+  onPlay?: () => void;
   onProgress: (
     position: number,
     duration: number | null,
@@ -168,13 +170,14 @@ function applySelections(
   selectedAudio: AudioTrack | null,
   selectedSubtitles: SubtitleSelection,
   qualityHeight: number | null,
+  maxHeight: number | null = null,
 ) {
   // Restrict ABR by logical height, not a volatile Shaka variant ID.
   // Keep the master URL and networking/recovery hooks intact.
   const available = player.getVariantTracks().some(track => track.height === qualityHeight);
   const height = available ? qualityHeight : null;
   player.configure({ abr: { enabled: true, restrictions: {
-    minHeight: height ?? 0, maxHeight: height ?? Infinity,
+    minHeight: height ?? 0, maxHeight: height ?? maxHeight ?? Infinity,
   } } });
   if (height !== null) {
     const variants = player.getVariantTracks();
@@ -226,6 +229,8 @@ export default function MediaPlayer({
   selectedAudio,
   selectedSubtitles,
   qualityHeight,
+  maxHeight = null,
+  onPlay,
   onProgress,
   onPause,
   onEnded,
@@ -236,6 +241,7 @@ export default function MediaPlayer({
   const callbacksRef = useRef({
     onProgress,
     onPause,
+    onPlay,
     onEnded,
     onError,
   });
@@ -244,10 +250,11 @@ export default function MediaPlayer({
     callbacksRef.current = {
       onProgress,
       onPause,
+      onPlay,
       onEnded,
       onError,
     };
-  }, [onProgress, onPause, onEnded, onError]);
+  }, [onProgress, onPause, onPlay, onEnded, onError]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -323,9 +330,7 @@ export default function MediaPlayer({
         const player = new shakaPlayer.Player();
         playerRef.current = player;
         await player.attach(video);
-        if (qualityHeight !== null) {
-          player.configure({ abr: { restrictions: { minHeight: qualityHeight, maxHeight: qualityHeight } } });
-        }
+        player.configure({ restrictions: { maxHeight: maxHeight ?? Infinity }, abr: { restrictions: { minHeight: qualityHeight ?? 0, maxHeight: qualityHeight ?? maxHeight ?? Infinity } } });
         if (cancelled) return;
         player.getNetworkingEngine()?.registerRequestFilter((_type, request, context) => {
           if (context?.type === shakaPlayer.net.NetworkingEngine.AdvancedRequestType.INIT_SEGMENT) {
@@ -372,6 +377,7 @@ export default function MediaPlayer({
           selectedAudio,
           selectedSubtitles,
           qualityHeight,
+          maxHeight,
         );
       } catch (error) {
         reportError(error);
@@ -394,9 +400,10 @@ export default function MediaPlayer({
         selectedAudio,
         selectedSubtitles,
         qualityHeight,
+        maxHeight,
       );
     }
-  }, [selectedAudio, selectedSubtitles, qualityHeight]);
+  }, [selectedAudio, selectedSubtitles, qualityHeight, maxHeight]);
 
   const externalTrack = source.protocol === "http"
     ? selectedSubtitles.selected_track
@@ -418,6 +425,7 @@ export default function MediaPlayer({
             : null,
         );
       }}
+      onPlay={() => callbacksRef.current.onPlay?.()}
       onPause={() => callbacksRef.current.onPause()}
       onEnded={() => callbacksRef.current.onEnded()}
       onError={() => {

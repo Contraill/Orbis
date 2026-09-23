@@ -38,9 +38,14 @@ from playback.delivery import DeliveryUnavailable, delivery_broker
 from playback.choices import ranked_choices, set_session_choices
 
 
+from client_sessions.service import playback_context
+from playback.capabilities import request_client, current_capabilities, ClientCompatibilityError
+
+
 router = APIRouter(
     prefix="/api/playback/profiles/{profile_id}",
     tags=["playback"],
+    dependencies=[Depends(playback_context)],
 )
 
 
@@ -50,6 +55,14 @@ def _audience(request: Request, response: Response) -> str:
         value = token_urlsafe(24)
         response.set_cookie("playback_client", value, httponly=True, samesite="strict", max_age=21600)
     return value
+
+
+def client_source_session(session_id, **kwargs):
+    source = source_sessions.get(session_id, **kwargs)
+    ctx = request_client.get()
+    if source.context.get("client_session_id") and source.context["client_session_id"] != (ctx["id"] if ctx else None):
+        raise SourceSessionScopeError(session_id)
+    return source
 
 
 def _profile_not_found() -> HTTPException:
@@ -95,6 +108,12 @@ def _put_state(
     identity: ContentIdentity,
     payload: PlaybackStateUpdate,
 ) -> PlaybackStateView:
+    ctx = request_client.get()
+    if ctx:
+        expected = (ctx.get("current_playback") or {}).get("content_key")
+        if expected != identity.content_key:
+            raise HTTPException(409, "Playback identity is not active for this client")
+        ctx["position"], ctx["completed"] = payload.position_seconds, payload.completed
     try:
         return state_view(
             upsert_playback_state(
@@ -206,7 +225,7 @@ async def _refresh(
     payload: PlaybackRefreshRequest,
 ) -> PlaybackSession:
     try:
-        source_session = source_sessions.get(
+        source_session = client_source_session(
             payload.source_session_id,
             profile_id=profile_id,
             content_key=identity.content_key,
@@ -230,7 +249,7 @@ async def _refresh(
 
 async def _recover(db, profile_id, identity, payload):
     try:
-        source_session = source_sessions.get(
+        source_session = client_source_session(
             payload.source_session_id, profile_id=profile_id,
             content_key=identity.content_key,
         )
@@ -267,7 +286,7 @@ async def _recover(db, profile_id, identity, payload):
 
 async def _choose(db, profile_id, identity, payload):
     try:
-        previous = source_sessions.get(payload.source_session_id, profile_id=profile_id, content_key=identity.content_key)
+        previous = client_source_session(payload.source_session_id, profile_id=profile_id, content_key=identity.content_key)
     except (SourceSessionNotFound, SourceSessionScopeError):
         raise HTTPException(404, "Playback source session not found")
     try:
@@ -279,7 +298,8 @@ async def _choose(db, profile_id, identity, payload):
         candidates = ranked_choices(previous.context.get("sources", [previous.source]), state)
         if not candidates:
             return await _resolve(db, profile_id, identity, previous.audience)
-        if candidates[0].url == previous.source.url:
+        if candidates[0].url == previous.source.url and current_capabilities(previous.context.get("capabilities")) == previous.context.get("capabilities"):
+            await set_session_choices(previous, candidates, previous.context.get("choices", PlaybackChoices()).providers, state)
             return playback_service.session_view(state, previous, [], payload.preferred_audio_track_id, payload.preferred_subtitle_track_id)
         replacement = delivery_broker.issue(profile_id, identity.content_key, candidates[0], previous.audience)
         await set_session_choices(replacement, candidates, previous.context.get("choices", PlaybackChoices()).providers, state)
@@ -287,6 +307,10 @@ async def _choose(db, profile_id, identity, payload):
         return playback_service.session_view(state, replacement, [])
     except ProfileNotFoundError:
         raise _profile_not_found()
+    except ClientCompatibilityError:
+        # A cached master may have changed; use the normal bounded source/provider
+        # fallback rather than trapping a manual quality choice on that host.
+        return await _resolve(db, profile_id, identity, previous.audience)
 
 
 @router.post("/movie/{tmdb_id}/choices", response_model=PlaybackSession)

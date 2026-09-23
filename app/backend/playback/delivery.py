@@ -18,10 +18,21 @@ class DeliveryUnavailable(ValueError):
 
 class DeliveryBroker:
     def issue(self, profile_id, content_key, source, audience=""):
-        return source_sessions.issue(
+        from playback.capabilities import current_capabilities, request_client
+        from playback.delivery_policy import DeliveryPlan
+        caps = current_capabilities()
+        plan = delivery_policy.choose(source, audience)
+        if caps is not None and source.protocol == "hls":
+            plan = DeliveryPlan(plan.relay | {"root", "manifest"})
+        session = source_sessions.issue(
             profile_id, content_key, source, audience=audience,
-            plan=delivery_policy.choose(source, audience),
+            plan=plan,
         )
+        session.context["capabilities"] = caps
+        ctx = request_client.get()
+        if ctx:
+            session.context["client_session_id"] = ctx["id"]
+        return session
 
     def client_url(self, session):
         return resource_url(session, session.resources["root"])

@@ -92,6 +92,9 @@ class PlaybackSource(BaseModel):
     protocol: PlaybackProtocol
 
     quality: str | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    hdr: bool | None = None
 
     audio_tracks: list[AudioTrack] = Field(
         default_factory=list

@@ -12,3 +12,4 @@ __all__ = [
 from db.models.catalog import CatalogEntity, CatalogLink, CatalogRating, SearchCache
 
 import metadata.index  # register FTS creation for test/create_all databases
+from db.models.client_session import ClientSession, ContentMarkers

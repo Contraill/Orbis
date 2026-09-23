@@ -59,3 +59,16 @@ async def health():
         "service": "media-app-backend",
         "version": "0.1.0",
     }
+
+
+from api.client_sessions import router as client_sessions_router
+from api.episodes import router as episodes_router, admin_router as markers_router
+from playback.capabilities import ClientCompatibilityError
+app.include_router(client_sessions_router)
+app.include_router(episodes_router)
+app.include_router(markers_router)
+
+
+@app.exception_handler(ClientCompatibilityError)
+async def incompatible_client(request, exc):
+    return JSONResponse(status_code=409, content={"detail": {"code": str(exc), "message": "No compatible playback source or variant is available for this client"}})

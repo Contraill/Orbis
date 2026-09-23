@@ -47,9 +47,11 @@ class MigrationTests(unittest.TestCase):
                     "provider_states",
                     "provider_events",
                     "playback_states",
+                    "client_sessions",
+                    "content_markers",
                 }.issubset(tables)
             )
-            self.assertEqual(revision, "d53f9b20e841")
+            self.assertEqual(revision, "e64a0c31f952")
             with closing(sqlite3.connect(database)) as connection, connection:
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
                 self.assertIsNone(connection.execute("SELECT owner_id FROM installation").fetchone()[0])
@@ -71,6 +73,8 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(connection.execute("SELECT owner_id,password_hash FROM installation").fetchone(), (4,None))
                 self.assertEqual(connection.execute("SELECT position_seconds FROM playback_states").fetchone()[0], 123)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM viewing_progress").fetchone()[0], 0)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM client_sessions").fetchone()[0], 0)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM content_markers").fetchone()[0], 0)
 
     def test_catalog_upgrade_backfills_both_locales_without_changing_source(self):
         import json

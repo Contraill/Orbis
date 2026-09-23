@@ -88,6 +88,14 @@ export async function request<T>(
     headers.set("Content-Type", "application/json");
   }
 
+  if (url.startsWith("/api/playback/profiles/")) {
+    const saved = sessionStorage.getItem("orbis.client-session");
+    if (saved) {
+      const client = JSON.parse(saved) as { id: string; profile_id: number };
+      if (url.startsWith(`/api/playback/profiles/${client.profile_id}/`)) headers.set("X-Orbis-Session", client.id);
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
     headers,
@@ -507,4 +515,65 @@ export function getFeed(profileId: number, surface: FeedSurface, cursor?: string
 }
 export function getFeedDiagnostics(profileId: number, snapshot: string) {
   return request<unknown>(`/api/feeds/profiles/${profileId}/diagnostics/${snapshot}`);
+}
+
+export type ClientCapabilities = {
+  hls: boolean; dash: boolean; video_codecs: string[] | null; audio_codecs: string[] | null;
+  max_height: number | null; text_tracks: boolean; subtitle_formats: string[] | null; hdr: boolean | null;
+};
+export type ClientSessionView = {
+  id: string; profile_id: number; display_name: string; client_type: string; state: string;
+  capabilities: ClientCapabilities | null; last_seen: string; current_playback: { content_key: string } | null;
+  position_seconds: number; revoked_at: string | null;
+};
+export function detectCapabilities(): ClientCapabilities {
+  const video = document.createElement("video");
+  const supports = (mime: string) => Boolean(video.canPlayType(mime)) || (typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(mime));
+  return {
+    hls: supports('application/vnd.apple.mpegurl') || typeof MediaSource !== "undefined", dash: typeof MediaSource !== "undefined",
+    video_codecs: [["h264", 'video/mp4; codecs="avc1.42E01E"'], ["hevc", 'video/mp4; codecs="hvc1.1.6.L93.B0"'], ["av1", 'video/mp4; codecs="av01.0.04M.08"'], ["vp9", 'video/webm; codecs="vp9"']].filter(([, mime]) => supports(mime)).map(([name]) => name),
+    audio_codecs: [["aac", 'audio/mp4; codecs="mp4a.40.2"'], ["ac3", 'audio/mp4; codecs="ac-3"'], ["eac3", 'audio/mp4; codecs="ec-3"'], ["opus", 'audio/webm; codecs="opus"']].filter(([, mime]) => supports(mime)).map(([name]) => name),
+    max_height: Number(sessionStorage.getItem("orbis.client-height")) || 1080,
+    text_tracks: true, subtitle_formats: ["vtt", "srt", "ttml"], hdr: matchMedia("(dynamic-range: high)").matches ? true : null,
+  };
+}
+let creatingClient: Promise<ClientSessionView> | null = null;
+export async function ensureClientSession(profileId: number): Promise<ClientSessionView> {
+  const saved = sessionStorage.getItem("orbis.client-session");
+  if (saved) {
+    const stored = JSON.parse(saved) as ClientSessionView;
+    if (stored.profile_id === profileId) {
+      try { return await request<ClientSessionView>(`/api/sessions/${stored.id}`); }
+      catch (error) {
+        if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
+        sessionStorage.removeItem("orbis.client-session");
+        if (error.status === 403) throw error; // Revocation requires explicit registration, not silent rejoining.
+      }
+    }
+  }
+  if (!creatingClient) {
+    creatingClient = request<ClientSessionView>("/api/sessions", { method: "POST", body: JSON.stringify({ profile_id: profileId, display_name: "Orbis web browser", client_type: "web", capabilities: detectCapabilities() }) })
+      .then(value => { sessionStorage.setItem("orbis.client-session", JSON.stringify(value)); return value; })
+      .finally(() => { creatingClient = null; });
+  }
+  const created = await creatingClient;
+  return created.profile_id === profileId ? created : ensureClientSession(profileId);
+}
+export function heartbeatClient(id: string, state: string, sourceId?: string, position = 0, capabilities?: ClientCapabilities, keepalive = false) {
+  return request<ClientSessionView>(`/api/sessions/${id}`, { method: "PATCH", keepalive, body: JSON.stringify({ state, source_session_id: sourceId, position_seconds: position, ...(capabilities ? { capabilities } : {}) }) });
+}
+export type EpisodeRef = { tmdb_id: number; season_number: number; episode_number: number; title: string | null; aired: boolean };
+export type EpisodeLifecycle = {
+  current: EpisodeRef; previous: EpisodeRef | null; next: EpisodeRef | null;
+  next_status: string; season_transition: boolean; is_final_episode: boolean; autoplay_next: boolean; autoplay_allowed: boolean;
+  resume_position_seconds: number; markers: Record<string, number | null>; marker_source: string | null; warning: string | null;
+};
+export function getEpisodeLifecycle(identity: PlaybackIdentity) {
+  return request<EpisodeLifecycle>(`${playbackPath(identity)}/lifecycle?enrich=true`);
+}
+export function prepareNextEpisode(identity: PlaybackIdentity) {
+  return request<PlaybackSession>(`${playbackPath(identity)}/prepare-next`, { method: "POST" });
+}
+export function transitionEpisode(identity: PlaybackIdentity, direction: "next" | "previous", prepared?: string) {
+  return request<PlaybackSession>(`${playbackPath(identity)}/transition`, { method: "POST", body: JSON.stringify({ direction, prepared_source_session_id: prepared }) });
 }

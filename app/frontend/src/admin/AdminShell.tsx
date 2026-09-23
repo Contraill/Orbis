@@ -11,6 +11,7 @@ const tabs = [
   ["/admin/providers", "Providers", false],
   ["/admin/tests", "Tests", false],
   ["/admin/diagnostics", "Diagnostics", false],
+  ["/admin/sessions", "Sessions", false],
   ["/admin/settings", "Settings", false],
 ] as const;
 

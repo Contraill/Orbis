@@ -46,6 +46,11 @@ async def read_manifest(response):
 
 
 def rewrite_manifest(session, parent, base_url, text):
+    from playback.capabilities import filter_hls, ClientCompatibilityError
+    try:
+        text = filter_hls(text, session.context.get("capabilities"))
+    except ClientCompatibilityError as exc:
+        raise UpstreamRejected("No compatible HLS variants") from exc
     output = []
     next_is_manifest = False
 

@@ -144,11 +144,15 @@ export interface SubtitleSelection {
 }
 
 export interface PlaybackSession {
+  client_session_id?: string | null;
+  preparation_only?: boolean;
   choices: {
     providers: { provider_id: string; label: string }[];
     sources: { source_id: string; label: string }[];
     qualities: { height: number; label: string }[];
     selected_quality_height: number | null;
+    max_compatible_height?: number | null;
+    quality_outcome?: string;
   };
   state: PlaybackState;
   resolution: PlaybackResolutionSummary;

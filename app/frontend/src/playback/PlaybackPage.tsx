@@ -20,7 +20,9 @@ import {
   resolvePlayback,
   savePlaybackState,
   choosePlayback,
-  getContinue,
+  ensureClientSession, heartbeatClient, detectCapabilities,
+  getEpisodeLifecycle, prepareNextEpisode, transitionEpisode, request,
+  type EpisodeLifecycle, type ClientSessionView,
 } from "../api";
 import MediaPlayer from "../player/MediaPlayer";
 import { useProfile } from "../app/ProfileContext";
@@ -97,7 +99,7 @@ function sameSubtitleTrack(
 
 
 export default function PlaybackPage() {
-  const { profile: activeProfile } = useProfile();
+  const { profile: activeProfile, reload: reloadProfile } = useProfile();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -147,6 +149,7 @@ export default function PlaybackPage() {
   const routeState = location.state as {
     title?: string;
     returnTo?: string;
+    playbackSession?: PlaybackSession;
   } | null;
   const returnTo = routeState?.returnTo ?? (
     mediaType === "movie"
@@ -180,6 +183,11 @@ export default function PlaybackPage() {
   const [error, setError] =
     useState<string | null>(null);
 
+  const [lifecycle, setLifecycle] = useState<EpisodeLifecycle | null>(null);
+  const [clientInfo, setClientInfo] = useState<ClientSessionView | null>(null);
+  const [heightLimit, setHeightLimit] = useState(Number(sessionStorage.getItem("orbis.client-height")) || 1080);
+  const preparedRef = useRef<string | undefined>(undefined);
+  const presenceState = useRef<"playing" | "paused">("paused");
   const readyRef = useRef(false);
   const transitionRef = useRef(false);
   const saveInFlightRef = useRef<Promise<void> | null>(null);
@@ -266,7 +274,12 @@ export default function PlaybackPage() {
 
     void (async () => {
       try {
-        const resolved = await resolvePlayback(identity);
+        const client = await ensureClientSession(identity.profileId);
+        if (cancelled) return;
+        setClientInfo(client);
+        const prepared = routeState?.playbackSession;
+        const matches = prepared && prepared.state.profile_id === identity.profileId && prepared.state.tmdb_id === identity.tmdbId && prepared.state.season_number === (identity.seasonNumber ?? null) && prepared.state.episode_number === (identity.episodeNumber ?? null) && prepared.client_session_id === client.id;
+        const resolved = matches ? prepared : await resolvePlayback(identity);
         if (!cancelled) {
           applySession(resolved);
         }
@@ -289,6 +302,33 @@ export default function PlaybackPage() {
       cancelled = true;
     };
   }, [identity, applySession]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLifecycle(null); preparedRef.current = undefined;
+    if (identity?.mediaType === "tv") {
+      getEpisodeLifecycle(identity).then(value => { if (!cancelled) setLifecycle(value); })
+        .catch(reason => { if (!cancelled) setMessage(String(reason)); });
+    }
+    return () => { cancelled = true; };
+  }, [identity, activeProfile?.autoplay_next_episode]);
+
+  useEffect(() => {
+    if (!clientInfo || !session || !identity) return;
+    const id = clientInfo.id;
+    const sourceId = session.source_session_id;
+    let cancelled = false;
+    const beat = () => {
+      if (completedRef.current || transitionRef.current) return;
+      void heartbeatClient(id, presenceState.current, sourceId, latestRef.current.currentTime)
+        .then(value => { if (!cancelled) setClientInfo(value); })
+        .catch(reason => {
+          if (!cancelled) { document.querySelector("video")?.pause(); setError(String(reason)); }
+        });
+    };
+    const interval = window.setInterval(beat, 30_000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [clientInfo?.id, session?.source_session_id, identity]);
 
   const stateSnapshot = useCallback(
     (completed?: boolean): PlaybackStateUpdate | null => {
@@ -324,7 +364,8 @@ export default function PlaybackPage() {
       if (
         !identity ||
         !readyRef.current ||
-        transitionRef.current
+        transitionRef.current ||
+        (completed === undefined && completedRef.current)
       ) {
         return Promise.resolve();
       }
@@ -372,19 +413,24 @@ export default function PlaybackPage() {
     const interval = window.setInterval(() => {
       void persist();
     }, SAVE_INTERVAL_MS);
-    const beforeUnload = () => {
-      void persist(undefined, true);
+    const stopPresence = () => {
+      const current = latestRef.current.session;
+      // Save durable progress before clearing transient presence. A stale source
+      // stop is rejected by the server if an episode transition already won.
+      void persist(undefined, true).then(() => {
+        if (current?.client_session_id) return heartbeatClient(current.client_session_id, "stopped", current.source_session_id, 0, undefined, true);
+      }).catch(() => {});
     };
 
-    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("beforeunload", stopPresence);
 
     return () => {
       window.clearInterval(interval);
       window.removeEventListener(
         "beforeunload",
-        beforeUnload,
+        stopPresence,
       );
-      void persist(undefined, true);
+      stopPresence();
     };
   }, [persist]);
 
@@ -564,6 +610,21 @@ export default function PlaybackPage() {
     }
   }
 
+  async function moveEpisode(direction: "next" | "previous") {
+    if (!identity || transitionRef.current) return;
+    const generation = routeGeneration.current;
+    if (!completedRef.current) await persist();
+    if (generation !== routeGeneration.current) return;
+    transitionRef.current = true; setFailoverBusy(true); setError(null);
+    try {
+      const next = await transitionEpisode(identity, direction, direction === "next" ? preparedRef.current : undefined);
+      if (generation !== routeGeneration.current) return;
+      readyRef.current = false;
+      navigate(`/watch/${identity.profileId}/tv/${next.state.tmdb_id}/season/${next.state.season_number}/episode/${next.state.episode_number}`, { state: { playbackSession: next, returnTo } });
+    } catch (reason) { if (generation === routeGeneration.current) setError(String(reason)); }
+    finally { transitionRef.current = false; setFailoverBusy(false); }
+  }
+
   if (loading) {
     return (
       <main className="playback-page playback-centered">
@@ -642,6 +703,11 @@ export default function PlaybackPage() {
           selectedAudio={selectedAudio}
           selectedSubtitles={subtitleSelection}
           qualityHeight={session.choices.selected_quality_height}
+          maxHeight={session.choices.max_compatible_height}
+          onPlay={() => {
+            presenceState.current = "playing";
+            if (session.client_session_id) void heartbeatClient(session.client_session_id, "playing", session.source_session_id, latestRef.current.currentTime).then(setClientInfo).catch(reason => setError(String(reason)));
+          }}
           onProgress={(position, nextDuration) => {
             setCurrentTime(position);
             setDuration(nextDuration);
@@ -655,18 +721,21 @@ export default function PlaybackPage() {
               completedRef.current = false;
             }
           }}
-          onPause={() => void persist()}
+          onPause={() => {
+            presenceState.current = "paused"; void persist();
+            if (session.client_session_id && !completedRef.current && !transitionRef.current) void heartbeatClient(session.client_session_id, "paused", session.source_session_id, latestRef.current.currentTime).then(setClientInfo).catch(() => {});
+          }}
           onEnded={() => {
             const generation = routeGeneration.current;
             completedRef.current = true;
             void (async () => {
               await persist(true);
               if (generation !== routeGeneration.current) return;
-              if (identity?.mediaType !== "tv" || activeProfile?.id !== identity.profileId || !activeProfile.autoplay_next_episode) return;
+              if (identity?.mediaType !== "tv" || activeProfile?.id !== identity.profileId) return;
               try {
-                const next = (await getContinue(identity.profileId, "tv")).find(item => item.tmdb_id === identity.tmdbId && item.action === "next_episode");
-                if (next && generation === routeGeneration.current) navigate(`/watch/${identity.profileId}/tv/${next.tmdb_id}/season/${next.season_number}/episode/${next.episode_number}`);
-              } catch { /* An unavailable next episode never invalidates the completed one. */ }
+                const navigation = await getEpisodeLifecycle(identity);
+                if (navigation.autoplay_allowed && generation === routeGeneration.current) await moveEpisode("next");
+              } catch { /* Missing next metadata does not invalidate completion. */ }
             })();
           }}
           onError={(playerError, failure) => {
@@ -675,6 +744,39 @@ export default function PlaybackPage() {
         />
       </section>
 
+      {lifecycle ? <section className="panel">
+        <h2>Episode lifecycle</h2>
+        <p>{lifecycle.is_final_episode ? "Final episode" : lifecycle.season_transition ? "Next episode starts a new season" : lifecycle.next_status}</p>
+        <button disabled={failoverBusy || !lifecycle.previous?.aired} onClick={() => void moveEpisode("previous")}>Previous episode</button>
+        <button disabled={failoverBusy || !lifecycle.next?.aired} onClick={() => void moveEpisode("next")}>Next episode</button>
+        <button disabled={failoverBusy || !lifecycle.next?.aired} onClick={async () => {
+          const generation = routeGeneration.current;
+          setFailoverBusy(true);
+          try { const prepared = await prepareNextEpisode(identity); if (generation === routeGeneration.current) { preparedRef.current = prepared.source_session_id; setMessage("Next episode prepared; viewing history unchanged."); } }
+          catch (reason) { if (generation === routeGeneration.current) setError(String(reason)); }
+          finally { if (generation === routeGeneration.current) setFailoverBusy(false); }
+        }}>Prepare Up Next</button>
+        <label><input type="checkbox" checked={lifecycle.autoplay_next} onChange={async event => {
+          try { await request(`/api/profiles/${identity.profileId}`, { method: "PATCH", body: JSON.stringify({ autoplay_next_episode: event.target.checked }) }); await reloadProfile(); setLifecycle(await getEpisodeLifecycle(identity)); }
+          catch (reason) { setError(String(reason)); }
+        }} /> Autoplay next episode</label>
+        <details><summary>Optional intro / recap / credits markers</summary><pre>{JSON.stringify(lifecycle.markers, null, 2)}</pre></details>
+      </section> : null}
+      <details className="panel"><summary>Client capabilities and current session</summary>
+        <label>Practical resolution limit <select value={heightLimit} onChange={event => setHeightLimit(Number(event.target.value))}><option value={720}>720p</option><option value={1080}>1080p</option><option value={2160}>2160p</option></select></label>
+        <button disabled={failoverBusy} onClick={async () => {
+          if (!clientInfo) return;
+          await persist(); setFailoverBusy(true);
+          try {
+            sessionStorage.setItem("orbis.client-height", String(heightLimit));
+            await heartbeatClient(clientInfo.id, presenceState.current, session.source_session_id, currentTime, detectCapabilities());
+            applySession(await resolvePlayback(identity));
+          } catch (reason) { setError(String(reason)); }
+          finally { setFailoverBusy(false); }
+        }}>Apply capabilities</button>
+        <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(clientInfo, null, 2)}</pre>
+        <p>Quality outcome: {session.choices.quality_outcome ?? "auto"}</p>
+      </details>
       <section className="playback-controls panel">
         <label>Provider
           <select disabled={failoverBusy} value={session.state.preferred_provider_id ?? ""}

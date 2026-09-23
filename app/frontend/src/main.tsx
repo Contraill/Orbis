@@ -13,6 +13,7 @@ import DiagnosticsPage from "./admin/DiagnosticsPage";
 import OverviewPage from "./admin/OverviewPage";
 import ProviderEditorPage from "./admin/ProviderEditorPage";
 import ProvidersPage from "./admin/ProvidersPage";
+import SessionsPage from "./admin/SessionsPage";
 import SettingsPage from "./admin/SettingsPage";
 import TestsPage from "./admin/TestsPage";
 import { ProfileProvider } from "./app/ProfileContext";
@@ -68,6 +69,7 @@ function App() {
             element={<AdminShell />}
           >
             <Route index element={<OverviewPage />} />
+            <Route path="sessions" element={<SessionsPage />} />
 
             <Route
               path="providers"

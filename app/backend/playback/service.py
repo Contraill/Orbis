@@ -12,7 +12,8 @@ from db.models.playback import (
 from db.models.profile import Profile
 from playback.matching import selections_for_source
 from playback.delivery import delivery_broker
-from playback.choices import ranked_choices, set_session_choices, selected_height
+from playback.source_sessions import source_sessions
+from playback.choices import ranked_choices, set_session_choices, selected_height, quality_result
 from playback.schemas import (
     MediaType,
     PlaybackClientSource,
@@ -23,6 +24,7 @@ from playback.schemas import (
     PlaybackPreferences,
     PlaybackChoices,
 )
+from playback.capabilities import current_capabilities, request_client, ClientCompatibilityError
 from providers.manager import ProviderManager, provider_manager
 from providers.source_policy import (
     aware_utc,
@@ -264,12 +266,27 @@ class PlaybackService:
         preferred_audio_track_id: str | None = None,
         preferred_subtitle_track_id: str | None = None,
         audience: str = "",
+        prepare: bool = False,
+        inherited_preferences: dict | None = None,
     ) -> PlaybackSession:
         state = get_playback_state(
             db,
             profile_id,
             identity,
         )
+        if inherited_preferences:
+            from types import SimpleNamespace
+            from db.models.profile import utc_now
+            profile = db.get(Profile, profile_id)
+            values = state_view(state).model_dump() if state else dict(
+                profile_id=profile_id, media_type=identity.media_type, tmdb_id=identity.tmdb_id,
+                season_number=identity.season_number, episode_number=identity.episode_number,
+                position_seconds=0, duration_seconds=None, completed=False, last_provider_id=None,
+                preferred_audio_language=profile.preferred_audio_language, preferred_audio_kind=None,
+                preferred_subtitle_language=profile.preferred_subtitle_language, subtitles_enabled=profile.subtitles_enabled,
+                updated_at=utc_now(), **PlaybackPreferences().model_dump())
+            values.update(inherited_preferences)
+            state = SimpleNamespace(**values)
         preferred_provider_id = (
             state.preferred_provider_id or state.last_provider_id
             if state is not None
@@ -333,12 +350,15 @@ class PlaybackService:
                 **{name: getattr(state, name) for name in PlaybackPreferences.model_fields},
             )
 
-        state = upsert_playback_state(
-            db,
-            profile_id,
-            identity,
-            update,
-        )
+        if prepare:
+            from types import SimpleNamespace
+            from db.models.profile import utc_now
+            state = SimpleNamespace(profile_id=profile_id, content_key=identity.content_key,
+                media_type=identity.media_type, tmdb_id=identity.tmdb_id,
+                season_number=identity.season_number, episode_number=identity.episode_number,
+                updated_at=utc_now(), **update.model_dump())
+        else:
+            state = upsert_playback_state(db, profile_id, identity, update)
         stable_audio_track_id = (
             preferred_audio_track_id
             if resolution.selected_provider_id
@@ -351,25 +371,37 @@ class PlaybackService:
             == preferred_provider_id
             else None
         )
-        source = ranked_choices(
-            resolution.sources,
-            state,
+        candidates = ranked_choices(resolution.sources, state,
             preferred_audio_track_id=stable_audio_track_id,
             preferred_subtitle_track_id=stable_subtitle_track_id,
-            require_healthy=require_healthy_source,
-        )[0]
-        source_session = delivery_broker.issue(
-            profile_id,
-            identity.content_key,
-            source,
-            audience,
-        )
+            require_healthy=require_healthy_source)
         providers = [
             {"provider_id": provider.provider_id, "label": provider.name}
             for provider in self.manager.list_providers(db)
             if provider.enabled and getattr(provider.capabilities, "movie" if identity.media_type == "movie" else "episode")
         ]
-        await set_session_choices(source_session, resolution.sources, providers, state)
+        source_session = None
+        for source in candidates:
+            candidate = delivery_broker.issue(profile_id, identity.content_key, source, audience)
+            try:
+                await set_session_choices(candidate, candidates, providers, state)
+            except ClientCompatibilityError:
+                source_sessions.discard(candidate.session_id)
+                continue
+            source_session = candidate
+            break
+        if source_session is None:
+            excluded = set(excluded_provider_ids or ()) | {resolution.selected_provider_id}
+            available = {p["provider_id"] for p in providers} - excluded
+            if available:
+                return await self.resolve(db, profile_id, identity, excluded_provider_ids=excluded,
+                    audience=audience, prepare=prepare, inherited_preferences=inherited_preferences,
+                    require_healthy_source=require_healthy_source,
+                    preferred_audio_track_id=preferred_audio_track_id,
+                    preferred_subtitle_track_id=preferred_subtitle_track_id)
+            raise ClientCompatibilityError("no_compatible_source")
+        if prepare:
+            source_session.context["preparation"] = update.model_dump(mode="json")
         source_session.context["excluded_provider_ids"] = set(excluded_provider_ids or ())
         return self.session_view(
             state, source_session, resolution.attempts,
@@ -394,12 +426,16 @@ class PlaybackService:
             subtitle_tracks=delivery_broker.client_subtitles(source_session),
             expires_at=normalized_expires_at,
         )
+        caps = current_capabilities(source_session.context.get("capabilities"))
+        if caps:
+            client_source.subtitle_tracks = [t for t in client_source.subtitle_tracks if t.kind == "burned_in" or
+                (caps.text_tracks and (caps.subtitle_formats is None or t.format is None or t.format.lower() in {f.lower() for f in caps.subtitle_formats}))]
         audio, subtitles = selections_for_source(
             client_source,
             preferred_audio_language=state.preferred_audio_language,
             preferred_audio_kind=state.preferred_audio_kind,
             preferred_audio_track_id=audio_id,
-            subtitles_enabled=state.subtitles_enabled,
+            subtitles_enabled=state.subtitles_enabled and (caps is None or caps.text_tracks),
             preferred_subtitle_language=state.preferred_subtitle_language,
             preferred_subtitle_track_id=subtitle_id,
         )
@@ -407,6 +443,11 @@ class PlaybackService:
         session_refresh_at = source_session.retained_until - timedelta(minutes=2)
         refresh_at = min(refresh_at, session_refresh_at) if refresh_at else session_refresh_at
 
+        ctx = request_client.get()
+        if ctx and not source_session.context.get("preparation"):
+            ctx["resolved"] = (source_session, {"content_key": state.content_key if hasattr(state, "content_key") else ContentIdentity(state.media_type, state.tmdb_id, state.season_number, state.episode_number).content_key,
+                "media_type": state.media_type, "tmdb_id": state.tmdb_id, "season_number": state.season_number, "episode_number": state.episode_number})
+            ctx["position"] = state.position_seconds
         return PlaybackSession(
             state=state_view(state),
             resolution=PlaybackResolutionSummary(
@@ -422,26 +463,29 @@ class PlaybackService:
             refresh_at=refresh_at,
             selected_audio=audio,
             selected_subtitles=subtitles,
-            choices=source_session.context.get("choices", PlaybackChoices()).model_copy(update={
-                "selected_quality_height": selected_height(
-                    source_session.context.get("choices", PlaybackChoices()).qualities,
-                    state.preferred_quality_height,
-                ),
-            }),
+            choices=quality_result(source_session.context.get("choices", PlaybackChoices()),
+                state.preferred_quality_height, current_capabilities(source_session.context.get("capabilities")),
+                source_session.context.get("incompatible_heights", ())),
+            client_session_id=source_session.context.get("client_session_id"),
+            preparation_only=bool(source_session.context.get("preparation")),
         )
 
     async def next_source(self, state, previous, audio_id=None, subtitle_id=None):
         # Consume the server-held candidate pool, never retry an already failed URL.
         sources = [s for s in previous.context.get("sources", []) if s.url != previous.source.url]
-        ranked = ranked_choices(sources, state)
-        if not ranked:
-            return None
-        replacement = delivery_broker.issue(state.profile_id, state.content_key, ranked[0], previous.audience)
+        ranked = ranked_choices(sources, state, capabilities=current_capabilities(previous.context.get("capabilities")))
         choices = previous.context.get("choices", PlaybackChoices())
-        await set_session_choices(replacement, sources, choices.providers, state)
-        replacement.context["excluded_provider_ids"] = previous.context.get("excluded_provider_ids", set())
-        # Track IDs are not portable between hosts; logical language/kind survive.
-        return self.session_view(state, replacement, [])
+        for candidate in ranked:
+            replacement = delivery_broker.issue(state.profile_id, state.content_key, candidate, previous.audience)
+            try:
+                await set_session_choices(replacement, sources, choices.providers, state)
+            except ClientCompatibilityError:
+                source_sessions.discard(replacement.session_id)
+                continue
+            replacement.context["excluded_provider_ids"] = previous.context.get("excluded_provider_ids", set())
+            # Track IDs are not portable between hosts; logical language/kind survive.
+            return self.session_view(state, replacement, [])
+        return None
 
 
 playback_service = PlaybackService()

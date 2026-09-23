@@ -149,6 +149,8 @@ class PlaybackClientSource(BaseModel):
 
 
 class PlaybackSession(BaseModel):
+    client_session_id: str | None = None
+    preparation_only: bool = False
     state: PlaybackStateView
     resolution: PlaybackResolutionSummary
     selected_source: PlaybackClientSource
@@ -181,6 +183,8 @@ class PlaybackChoices(BaseModel):
     sources: list[SourceChoice] = Field(default_factory=list)
     qualities: list[QualityChoice] = Field(default_factory=list)
     selected_quality_height: int | None = None
+    max_compatible_height: int | None = None
+    quality_outcome: Literal["auto", "exact", "unavailable_fallback", "incompatible_fallback", "unverified"] = "auto"
 
 
 class PlaybackTransitionRequest(PlaybackStateUpdate):
@@ -218,3 +222,51 @@ class PlaybackFailure(BaseModel):
 
 class PlaybackRecoverRequest(PlaybackRefreshRequest):
     failure: PlaybackFailure
+
+
+class EpisodeMarkers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    intro_start: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    intro_end: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    recap_start: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    recap_end: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    credits_start: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    credits_end: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def ordered_ranges(self):
+        for name in ("intro", "recap", "credits"):
+            start, end = getattr(self, name + "_start"), getattr(self, name + "_end")
+            if start is not None and end is not None and end <= start:
+                raise ValueError(f"{name}_end must be after {name}_start")
+        return self
+
+
+class EpisodeReference(BaseModel):
+    media_type: Literal["tv"] = "tv"
+    tmdb_id: int
+    season_number: int
+    episode_number: int
+    content_key: str
+    episode_tmdb_id: int | None = None
+    title: str | None = None
+    air_date: str | None = None
+    aired: bool = False
+
+
+class EpisodeLifecycle(BaseModel):
+    current: EpisodeReference
+    previous: EpisodeReference | None = None
+    next: EpisodeReference | None = None
+    next_status: Literal["available", "unreleased", "series_finished", "metadata_incomplete"]
+    season_transition: bool
+    is_season_final: bool
+    is_final_season: bool
+    is_final_episode: bool
+    autoplay_next: bool
+    autoplay_allowed: bool
+    resume_position_seconds: float
+    current_completed: bool
+    markers: EpisodeMarkers
+    marker_source: str | None = None
+    warning: str | None = None

@@ -10,6 +10,8 @@ from playback.schemas import PlaybackChoices, QualityChoice, SourceChoice
 from playback.upstream import UpstreamRejected, new_http_client, open_upstream
 from providers.source_policy import quality_score, rank_sources
 
+from playback.capabilities import current_capabilities, source_compatible, filter_hls, request_client
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,11 @@ async def discover_qualities(source) -> list[QualityChoice]:
             response, _ = await open_upstream(client, source, source.url)
             if response.status_code != 200:
                 return []
-            return manifest_qualities(await read_manifest(response))
+            text = await read_manifest(response)
+            ctx = request_client.get()
+            if ctx is not None:
+                ctx["advertised_heights"] = {q.height for q in manifest_qualities(text)}
+            return manifest_qualities(filter_hls(text, current_capabilities()))
     except (httpx.HTTPError, OSError, UpstreamRejected, TimeoutError):
         # Discovery is best effort, not an additional prerequisite for playback.
         logger.info("quality_discovery_unavailable provider=%s source=%s", source.provider_id, source.source_id)
@@ -57,8 +63,9 @@ def selected_height(qualities, preferred):
 
 
 def ranked_choices(sources, state, **kwargs):
+    caps = kwargs.pop("capabilities", current_capabilities())
     ranked = rank_sources(
-        sources, preferred_audio_language=state.preferred_audio_language,
+        [s for s in sources if source_compatible(s, caps)], preferred_audio_language=state.preferred_audio_language,
         preferred_audio_kind=state.preferred_audio_kind,
         subtitles_enabled=state.subtitles_enabled,
         preferred_subtitle_language=state.preferred_subtitle_language, **kwargs,
@@ -79,12 +86,25 @@ def ranked_choices(sources, state, **kwargs):
 
 
 async def set_session_choices(session, sources, providers, state):
+    caps = current_capabilities(session.context.get("capabilities"))
+    advertised = {quality_score(s.quality) for s in sources if s.source_id == session.source.source_id and s.protocol == "http"}
+    sources = [s for s in sources if source_compatible(s, caps)]
+    session.context["capabilities"] = caps
+    ctx = request_client.get()
+    if ctx:
+        session.context["client_session_id"] = ctx["id"]
+        ctx.pop("advertised_heights", None)
     qualities = await discover_qualities(session.source)
+    if ctx is not None:
+        advertised |= ctx.pop("advertised_heights", set())
     if session.source.protocol == "http":
         heights = {quality_score(source.quality) for source in sources
                    if source.source_id == session.source.source_id and source.protocol == "http"}
         qualities = [QualityChoice(height=h, label=f"{h}p") for h in sorted(heights, reverse=True) if h]
+    if caps and caps.max_height:
+        qualities = [q for q in qualities if q.height <= caps.max_height]
     session.context.update(
+        incompatible_heights=advertised - {q.height for q in qualities},
         sources=sources,
         choices=PlaybackChoices(
             providers=providers,
@@ -96,3 +116,19 @@ async def set_session_choices(session, sources, providers, state):
             selected_quality_height=selected_height(qualities, state.preferred_quality_height),
         ),
     )
+
+
+def quality_result(choices, preferred, caps, incompatible_heights=()):
+    compatible = [q for q in choices.qualities if not caps or not caps.max_height or q.height <= caps.max_height]
+    selected = selected_height(compatible, preferred)
+    max_height = caps.max_height if caps else None
+    if preferred is None:
+        outcome = "auto"
+    elif preferred in incompatible_heights or caps and caps.max_height and preferred > caps.max_height:
+        outcome = "incompatible_fallback"
+    elif not compatible:
+        outcome = "unverified"
+    else:
+        outcome = "exact" if selected == preferred else "unavailable_fallback"
+    return choices.model_copy(update={"qualities": compatible, "selected_quality_height": selected,
+        "max_compatible_height": max_height, "quality_outcome": outcome})
