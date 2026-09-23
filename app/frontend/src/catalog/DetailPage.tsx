@@ -372,6 +372,7 @@ export default function DetailPage({
             </div>
           </section>
         ) : null}
+        {details ? <details className="catalog-section"><summary>Catalog metadata (verification)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(details, null, 2)}</pre></details> : null}
       </main>
     </div>
   );

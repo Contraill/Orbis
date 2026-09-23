@@ -27,8 +27,17 @@ def store_metadata(db, locale, item):
         key = f"{data['media_type']}:{data['tmdb_id']}"
     old = db.get(LocalizedMetadata, (key, locale))
     combined = {**(old.data if old else {}), **data}
+    # A search summary must not renew the freshness of old rich details.
+    if old and "genres" in old.data and "genres" not in data:
+        return
     stmt = insert(LocalizedMetadata).values(content_key=key, locale=locale, data=combined, fetched_at=utc_now())
     db.execute(stmt.on_conflict_do_update(index_elements=["content_key", "locale"], set_={"data": combined, "fetched_at": utc_now()}))
+
+    if old:
+        db.expire(old)
+    db.flush()
+    from metadata.catalog import ingest
+    ingest(db, combined)
 
 
 def store_response(db, locale, response):

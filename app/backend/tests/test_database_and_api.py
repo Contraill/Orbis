@@ -186,3 +186,22 @@ class DatabaseAndApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         mocked.assert_awaited_once_with("matrix", 1)
+
+    def test_unified_catalog_profile_locale_and_http_cursor_validation(self):
+        from metadata.schemas import CatalogDetails
+        from metadata.localization import store_metadata
+        profile = self.create_profile("Turkish")
+        with self.sessions() as db:
+            db.get(Profile, profile["id"]).locale = "tr-TR"
+            for locale, title in [("en-US", "The Dark Knight"), ("tr-TR", "Kara Şövalye")]:
+                store_metadata(db, locale, CatalogDetails(tmdb_id=155, media_type="movie", title=title, original_title="The Dark Knight"))
+            db.commit()
+        with patch("api.catalog.tmdb._get", new_callable=AsyncMock) as upstream:
+            result = self.client.get("/api/catalog/unified-search", params={"query": "dark knight", "profile_id": profile["id"]})
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()["groups"]["movie"][0]["title"], "Kara Şövalye")
+            upstream.assert_not_called()
+        self.assertEqual(self.client.get("/api/catalog/unified-search?query=matrix&cursor=unknown").status_code, 410)
+        self.assertEqual(self.client.get("/api/catalog/unified-search?query=matrix&limit=999").status_code, 422)
+        self.assertEqual(self.client.get("/api/catalog/items?my_list=true").status_code, 422)
+        self.assertEqual(self.client.get("/api/catalog/movie/155/ratings").json(), {"ratings": []})

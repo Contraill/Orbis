@@ -49,7 +49,7 @@ class MigrationTests(unittest.TestCase):
                     "playback_states",
                 }.issubset(tables)
             )
-            self.assertEqual(revision, "b91f02a7c640")
+            self.assertEqual(revision, "c42e8a19d730")
             with closing(sqlite3.connect(database)) as connection, connection:
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
                 self.assertIsNone(connection.execute("SELECT owner_id FROM installation").fetchone()[0])
@@ -71,3 +71,23 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(connection.execute("SELECT owner_id,password_hash FROM installation").fetchone(), (4,None))
                 self.assertEqual(connection.execute("SELECT position_seconds FROM playback_states").fetchone()[0], 123)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM viewing_progress").fetchone()[0], 0)
+
+    def test_catalog_upgrade_backfills_both_locales_without_changing_source(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "catalog.db"
+            env = {**os.environ, "DATABASE_URL": f"sqlite:///{database}"}
+            def migrate(target):
+                subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=BACKEND_ROOT, env=env, check=True, capture_output=True, text=True)
+            migrate("b91f02a7c640")
+            with closing(sqlite3.connect(database)) as connection, connection:
+                for locale, title in [("en-US", "The Dark Knight"), ("tr-TR", "Kara Şövalye")]:
+                    data = json.dumps({"tmdb_id": 155, "media_type": "movie", "title": title, "original_title": "The Dark Knight", "genres": ["Drama"]})
+                    connection.execute("INSERT INTO localized_metadata VALUES (?,?,?,?)", ("movie:155", locale, data, "2026-01-01"))
+            migrate("head")
+            with closing(sqlite3.connect(database)) as connection:
+                self.assertEqual(connection.execute("SELECT count(*) FROM catalog_entities").fetchone()[0], 1)
+                self.assertEqual(connection.execute("SELECT count(*) FROM localized_metadata").fetchone()[0], 2)
+                for term in ("dark", "sovalye"):
+                    self.assertEqual(connection.execute("SELECT key FROM catalog_fts WHERE catalog_fts MATCH ?", (term,)).fetchone()[0], "movie:155")
+            subprocess.run([sys.executable, "-m", "alembic", "check"], cwd=BACKEND_ROOT, env=env, check=True, capture_output=True, text=True)

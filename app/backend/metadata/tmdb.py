@@ -162,9 +162,10 @@ class TMDBClient:
         self,
         tmdb_id: int,
     ) -> CatalogDetails:
-        data = await self._get(f"/movie/{tmdb_id}")
+        data = await self._get(f"/movie/{tmdb_id}", {"append_to_response": "credits,keywords,external_ids,alternative_titles,videos,similar,recommendations"})
 
         return CatalogDetails(
+            **rich_fields(data),
             tmdb_id=data["id"],
             media_type="movie",
             title=data.get("title") or data.get("original_title") or "Untitled",
@@ -187,11 +188,12 @@ class TMDBClient:
         self,
         tmdb_id: int,
     ) -> CatalogDetails:
-        data = await self._get(f"/tv/{tmdb_id}")
+        data = await self._get(f"/tv/{tmdb_id}", {"append_to_response": "credits,keywords,external_ids,alternative_titles,videos,similar,recommendations"})
 
         runtimes = data.get("episode_run_time") or []
 
         return CatalogDetails(
+            **rich_fields(data),
             tmdb_id=data["id"],
             media_type="tv",
             title=data.get("name") or data.get("original_name") or "Untitled",
@@ -223,6 +225,7 @@ class TMDBClient:
 
         episodes = [
             EpisodeSummary(
+                tmdb_id=episode.get("id"),
                 episode_number=episode["episode_number"],
                 name=episode.get("name") or "",
                 overview=episode.get("overview") or "",
@@ -247,3 +250,30 @@ class TMDBClient:
             poster_url=image_url(data.get("poster_path"), "w500"),
             episodes=episodes,
         )
+
+
+def rich_fields(data):
+    def refs(values):
+        return [{"tmdb_id": v["id"], "name": v["name"]} for v in values if v.get("id") and v.get("name")]
+    credits = []
+    for c in data.get("credits", {}).get("cast", []):
+        credits.append({"tmdb_id": c["id"], "name": c["name"], "role": "Actor", "character": c.get("character") or "", "order": c.get("order")})
+    for c in data.get("credits", {}).get("crew", []):
+        credits.append({"tmdb_id": c["id"], "name": c["name"], "role": c.get("job") or "Crew", "department": c.get("department")})
+    for c in data.get("created_by", []):
+        credits.append({"tmdb_id": c["id"], "name": c["name"], "role": "Creator"})
+    keywords = data.get("keywords", {})
+    alternatives = data.get("alternative_titles", {})
+    kind = "tv" if "first_air_date" in data or "number_of_seasons" in data else "movie"
+    return dict(
+        genre_refs=refs(data.get("genres", [])),
+        keywords=refs(keywords.get("keywords", keywords.get("results", []))),
+        aliases=sorted({a["title"] for a in alternatives.get("titles", alternatives.get("results", [])) if a.get("title")}),
+        external_ids={k.removesuffix("_id"): str(v) for k, v in data.get("external_ids", {}).items() if v is not None and k != "id"},
+        original_language=data.get("original_language"),
+        countries=sorted(set(data.get("origin_country", []) + [c["iso_3166_1"] for c in data.get("production_countries", [])])),
+        production_companies=refs(data.get("production_companies", [])), credits=credits,
+        videos=[{"site": v["site"], "key": v["key"], "name": v.get("name", ""), "language": v.get("iso_639_1"), "country": v.get("iso_3166_1"), "type": v.get("type", "Unknown"), "official": v.get("official", False), "published_at": v.get("published_at")} for v in data.get("videos", {}).get("results", [])],
+        seasons=[{"tmdb_id": v["id"], "season_number": v["season_number"], "name": v.get("name", ""), "overview": v.get("overview") or "", "air_date": v.get("air_date"), "episode_count": v.get("episode_count", 0), "poster_url": image_url(v.get("poster_path"), "w500")} for v in data.get("seasons", [])],
+        related=[{"media_type": kind, "tmdb_id": v["id"], "relation": relation} for relation in ("similar", "recommendations") for v in data.get(relation, {}).get("results", [])],
+    )

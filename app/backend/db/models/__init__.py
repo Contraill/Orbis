@@ -9,3 +9,6 @@ __all__ = [
     "ProviderEvent",
     "ProviderState",
 ]
+from db.models.catalog import CatalogEntity, CatalogLink, CatalogRating, SearchCache
+
+import metadata.index  # register FTS creation for test/create_all databases

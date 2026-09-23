@@ -472,3 +472,23 @@ export function saveProviderSettings(
     },
   );
 }
+
+export type SearchResult = {
+  key: string;
+  kind: "movie" | "tv" | "person" | "company";
+  tmdb_id: number;
+  title: string;
+  roles: string[];
+  display_locale?: string;
+};
+export type SearchPage = { results: SearchResult[]; next_cursor: string | null; warning?: string | null };
+export function unifiedSearch(query: string, kind: string, online: boolean, cursor?: string) {
+  const params = new URLSearchParams({ query, kind, online: String(online) });
+  if (cursor) params.set("cursor", cursor);
+  return request<SearchPage>(`/api/catalog/unified-search?${params}`);
+}
+export function catalogCredits(kind: "person" | "company", id: number, cursor?: string) {
+  const params = new URLSearchParams({ enrich: String(kind === "person") });
+  if (cursor) params.set("cursor", cursor);
+  return request<SearchPage>(`/api/catalog/${kind}/${id}/credits?${params}`);
+}
