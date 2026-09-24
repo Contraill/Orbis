@@ -25,6 +25,7 @@ import {
   type EpisodeLifecycle, type ClientSessionView,
 } from "../api";
 import MediaPlayer from "../player/MediaPlayer";
+import WatchTogetherPanel from "./WatchTogetherPanel";
 import { useProfile } from "../app/ProfileContext";
 import type {
   AudioKind,
@@ -184,6 +185,7 @@ export default function PlaybackPage() {
     useState<string | null>(null);
 
   const [lifecycle, setLifecycle] = useState<EpisodeLifecycle | null>(null);
+  const [roomActive, setRoomActive] = useState(false);
   const [clientInfo, setClientInfo] = useState<ClientSessionView | null>(null);
   const [heightLimit, setHeightLimit] = useState(Number(sessionStorage.getItem("orbis.client-height")) || 1080);
   const preparedRef = useRef<string | undefined>(undefined);
@@ -704,6 +706,7 @@ export default function PlaybackPage() {
           selectedSubtitles={subtitleSelection}
           qualityHeight={session.choices.selected_quality_height}
           maxHeight={session.choices.max_compatible_height}
+          autoPlay={!roomActive}
           onPlay={() => {
             presenceState.current = "playing";
             if (session.client_session_id) void heartbeatClient(session.client_session_id, "playing", session.source_session_id, latestRef.current.currentTime).then(setClientInfo).catch(reason => setError(String(reason)));
@@ -731,6 +734,7 @@ export default function PlaybackPage() {
             void (async () => {
               await persist(true);
               if (generation !== routeGeneration.current) return;
+              if (roomActive) return;
               if (identity?.mediaType !== "tv" || activeProfile?.id !== identity.profileId) return;
               try {
                 const navigation = await getEpisodeLifecycle(identity);
@@ -744,7 +748,19 @@ export default function PlaybackPage() {
         />
       </section>
 
-      {lifecycle ? <section className="panel">
+      {session.client_session_id ? <WatchTogetherPanel
+        identity={identity} clientId={session.client_session_id} sourceId={session.source_session_id}
+        onActive={setRoomActive} beforeTransition={() => persist()}
+        onResolved={next => {
+          if (next.state.tmdb_id === identity.tmdbId && next.state.media_type === identity.mediaType && next.state.season_number === (identity.seasonNumber ?? null) && next.state.episode_number === (identity.episodeNumber ?? null)) {
+            applySession(next);
+          } else {
+            readyRef.current = false;
+            const target = next.state.media_type === "movie" ? `movie/${next.state.tmdb_id}` : `tv/${next.state.tmdb_id}/season/${next.state.season_number}/episode/${next.state.episode_number}`;
+            navigate(`/watch/${identity.profileId}/${target}`, { state: { playbackSession: next, returnTo } });
+          }
+        }} /> : null}
+      {lifecycle && !roomActive ? <section className="panel">
         <h2>Episode lifecycle</h2>
         <p>{lifecycle.is_final_episode ? "Final episode" : lifecycle.season_transition ? "Next episode starts a new season" : lifecycle.next_status}</p>
         <button disabled={failoverBusy || !lifecycle.previous?.aired} onClick={() => void moveEpisode("previous")}>Previous episode</button>

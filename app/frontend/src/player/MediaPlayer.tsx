@@ -40,6 +40,7 @@ interface MediaPlayerProps {
   selectedSubtitles: SubtitleSelection;
   qualityHeight: number | null;
   maxHeight?: number | null;
+  autoPlay?: boolean;
   onPlay?: () => void;
   onProgress: (
     position: number,
@@ -230,6 +231,7 @@ export default function MediaPlayer({
   selectedSubtitles,
   qualityHeight,
   maxHeight = null,
+  autoPlay = true,
   onPlay,
   onProgress,
   onPause,
@@ -414,7 +416,7 @@ export default function MediaPlayer({
       ref={videoRef}
       className="media-player"
       controls
-      autoPlay
+      autoPlay={autoPlay}
       playsInline
       onTimeUpdate={(event) => {
         const video = event.currentTarget;

@@ -14,7 +14,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 
-app = FastAPI(title="Orbis API", version="0.1.0")
+from api.watch_together import router as watch_together_router, room_lifespan
+
+app = FastAPI(title="Orbis API", version="0.1.0", lifespan=room_lifespan)
 
 
 @app.exception_handler(RequestValidationError)
@@ -30,7 +32,7 @@ async def validation_error(request, exc):
 @app.middleware("http")
 async def private_admin_responses(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/setup", "/api/admin")):
+    if request.url.path.startswith(("/api/setup", "/api/admin", "/api/watch-together")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -72,3 +74,5 @@ app.include_router(markers_router)
 @app.exception_handler(ClientCompatibilityError)
 async def incompatible_client(request, exc):
     return JSONResponse(status_code=409, content={"detail": {"code": str(exc), "message": "No compatible playback source or variant is available for this client"}})
+
+app.include_router(watch_together_router)
