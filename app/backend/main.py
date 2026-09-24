@@ -11,28 +11,23 @@ from core.auth import require_owner
 from api.library import router as library_router
 from api.feeds import router as feeds_router
 from fastapi.exceptions import RequestValidationError
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from core.errors import http_error, validation_error, error_response
+from core.logging import install as install_logging
+
+install_logging()
 
 from api.watch_together import router as watch_together_router, room_lifespan
 
-app = FastAPI(title="Orbis API", version="0.1.0", lifespan=room_lifespan)
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_error(request, exc):
-    if request.url.path.startswith("/api/setup"):
-        # Pydantic validation errors can otherwise echo the submitted password.
-        return JSONResponse(status_code=422, content={"detail": [
-            {key: error[key] for key in ("type", "loc", "msg")} for error in exc.errors()
-        ]})
-    return await request_validation_exception_handler(request, exc)
+app = FastAPI(title="Orbis API", version="1.0.0", lifespan=room_lifespan)
+app.add_exception_handler(StarletteHTTPException,http_error)
+app.add_exception_handler(RequestValidationError,validation_error)
 
 
 @app.middleware("http")
 async def private_admin_responses(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/setup", "/api/admin", "/api/watch-together")):
+    if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -59,7 +54,8 @@ async def health():
     return {
         "status": "ok",
         "service": "media-app-backend",
-        "version": "0.1.0",
+        "version": "1.0.0",
+        "api_version": "v1",
     }
 
 
@@ -73,6 +69,18 @@ app.include_router(markers_router)
 
 @app.exception_handler(ClientCompatibilityError)
 async def incompatible_client(request, exc):
-    return JSONResponse(status_code=409, content={"detail": {"code": str(exc), "message": "No compatible playback source or variant is available for this client"}})
+    return error_response(409,{"code":str(exc),"message":"No compatible playback source or variant is available for this client"})
 
 app.include_router(watch_together_router)
+
+from api.system import router as system_router
+app.include_router(system_router)
+
+from core.openapi import install as install_openapi
+install_openapi(app)
+
+@app.exception_handler(Exception)
+async def internal_error(request,exc):
+    import logging
+    logging.getLogger(__name__).error('request_failed type=%s',type(exc).__name__)
+    return error_response(500,'Internal server error')

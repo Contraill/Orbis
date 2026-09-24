@@ -6,7 +6,7 @@ import { useText } from "../app/i18n";
 import MediaCard from "./MediaCard";
 
 export default function FeedVerification({ surface }: { surface: FeedSurface }) {
-  const { profile } = useProfile();
+  const { profile, admin } = useProfile();
   const t = useText();
   const [shelves, setShelves] = useState<FeedShelf[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -84,7 +84,7 @@ export default function FeedVerification({ surface }: { surface: FeedSurface }) 
     {busy ? <p role="status">{t("Loading…")}</p> : null}
     {!busy && !error && !shelves.length ? <p>No eligible cached titles yet. Add onboarding selections or browse/search to enrich the catalog.</p> : null}
     {cursor ? <button className="button primary" disabled={busy} onClick={() => void load(cursor)}>Load more shelves</button> : shelves.length && !busy ? <p>End of this feed</p> : null}
-    {snapshot ? <details><summary>Recommendation diagnostics (verification)</summary>
+    {snapshot && admin ? <details><summary>Recommendation diagnostics (verification)</summary>
       <button className="button secondary" disabled={busy} onClick={async () => {
         const id = generation.current;
         try { const value = await getFeedDiagnostics(profile.id, snapshot); if (id === generation.current) setDiagnostics(value); }

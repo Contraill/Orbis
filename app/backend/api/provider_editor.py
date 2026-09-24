@@ -5,7 +5,8 @@ from fastapi import (
     HTTPException,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from providers.settings import SettingsView
 
 from providers.live import (
     LiveProviderConflict,
@@ -14,12 +15,10 @@ from providers.live import (
     LiveProviderValidationError,
     activate_draft,
     create_live_provider,
-    get_settings,
     list_live_providers,
     provider_editor_state,
     rollback_provider,
     save_draft,
-    save_settings,
     validate_draft,
     create_factory_override,
     revert_to_factory,
@@ -59,7 +58,8 @@ class ProviderCodeUpdate(BaseModel):
 
 
 class ProviderSettingsUpdate(BaseModel):
-    settings: dict[str, Any]
+    model_config = ConfigDict(extra='forbid')
+    settings: dict[str, Any] = Field(max_length=32)
 
 
 def handle_error(exc: LiveProviderError):
@@ -112,7 +112,7 @@ def create_provider(payload: ProviderCreate):
         handle_error(exc)
 
 
-@router.get("/discovery-errors")
+@router.get("/discovery-errors",deprecated=True)
 def live_discovery_errors():
     return discovery_errors()
 
@@ -216,23 +216,25 @@ def rollback(
         handle_error(exc)
 
 
-@router.get("/{provider_id}/settings")
+@router.get("/{provider_id}/settings", response_model=SettingsView)
 def provider_settings(provider_id: str):
     try:
-        return get_settings(
+        from providers.settings import settings_view
+        return settings_view(
             provider_id
         )
     except LiveProviderError as exc:
         handle_error(exc)
 
 
-@router.put("/{provider_id}/settings")
+@router.put("/{provider_id}/settings", response_model=SettingsView)
 def update_settings(
     provider_id: str,
     payload: ProviderSettingsUpdate,
 ):
     try:
-        return save_settings(
+        from providers.settings import update_settings as apply_settings
+        return apply_settings(
             provider_id,
             payload.settings,
         )

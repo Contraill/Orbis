@@ -22,6 +22,8 @@ class MediaProvider(ABC):
     default_enabled: bool = True
     default_priority: int = 100
     capabilities: ProviderCapabilities
+    # Validated on discovery/activation. Configuration is not versioned code.
+    settings_schema: tuple = ()
 
     @abstractmethod
     async def health_check(self) -> ProviderHealthResult:

@@ -8,6 +8,7 @@ from types import ModuleType
 
 from providers import adapters
 from providers.contract import MediaProvider
+from core.errors import safe_text
 
 
 LIVE_PROVIDER_ROOT = Path("/config/providers")
@@ -24,6 +25,7 @@ def _load_provider_module(
 ) -> MediaProvider:
     module = ModuleType(module_name)
     module.__file__ = str(path)
+    previous = sys.modules.get(module_name)
     sys.modules[module_name] = module
 
     try:
@@ -32,6 +34,8 @@ def _load_provider_module(
         exec(code, module.__dict__)
     except Exception:
         sys.modules.pop(module_name, None)
+        if previous is not None:
+            sys.modules[module_name] = previous
         raise
 
     provider = getattr(module, "PROVIDER", None)
@@ -44,6 +48,9 @@ def _load_provider_module(
 
     if not provider.id:
         raise ValueError("Provider id cannot be empty")
+
+    from providers.settings import definitions
+    definitions(provider)
 
     return provider
 
@@ -81,6 +88,9 @@ def _discover_builtin(
                     f"Duplicate provider id: {provider.id}"
                 )
 
+            from providers.settings import definitions
+            definitions(provider)
+
             discovered[provider.id] = provider
             sources[provider.id] = "builtin"
 
@@ -106,6 +116,9 @@ def _discover_live(
 
         provider_id = directory.name
         active_path = directory / "active.py"
+        if directory.is_symlink() or active_path.is_symlink():
+            errors[f"live:{provider_id}"] = "Provider symlinks are not allowed"
+            continue
 
         if not active_path.is_file():
             continue
@@ -113,8 +126,7 @@ def _discover_live(
         try:
             module_name = (
                 "_media_app_live_"
-                f"{provider_id}_"
-                f"{active_path.stat().st_mtime_ns}"
+                f"{provider_id}"
             )
 
             provider = _load_provider_module(
@@ -197,6 +209,10 @@ def _install_registry(
     _PROVIDERS = discovered
     _DISCOVERY_ERRORS = errors
     _PROVIDER_SOURCES = sources
+    live_modules = {f"_media_app_live_{key}" for key, kind in sources.items() if kind == "live"}
+    for name in list(sys.modules):
+        if name.startswith("_media_app_live_") and name not in live_modules:
+            sys.modules.pop(name, None)
 
 
 def reload_registry() -> dict[str, MediaProvider]:
@@ -241,7 +257,7 @@ def discovery_errors() -> dict[str, str]:
         if _PROVIDERS is None:
             reload_registry()
 
-        return dict(_DISCOVERY_ERRORS)
+        return {key:safe_text(value) for key,value in _DISCOVERY_ERRORS.items()}
 
 
 def provider_sources() -> dict[str, str]:

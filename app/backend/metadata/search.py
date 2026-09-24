@@ -23,6 +23,8 @@ def fingerprint(value):
 def save(db, key, data):
     from sqlalchemy.dialects.sqlite import insert
     db.execute(insert(SearchCache).values(key=key, data=data, expires_at=utc_now() + TTL).on_conflict_do_update(index_elements=["key"], set_={"data": data, "expires_at": utc_now() + TTL}))
+    from core.maintenance import trim_cache
+    trim_cache(db,key)
 
 
 async def remote(db, client, query, kind, page, locale):

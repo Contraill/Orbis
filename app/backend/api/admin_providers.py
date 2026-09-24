@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from core.errors import safe_text
 
 from db.models.provider import ProviderEvent
 from db.session import get_db
@@ -134,12 +135,13 @@ def provider_logs(
     if get_provider(provider_id) is None:
         raise provider_not_found()
 
-    return db.scalars(
+    rows = db.scalars(
         select(ProviderEvent)
         .where(ProviderEvent.provider_id == provider_id)
         .order_by(ProviderEvent.id.desc())
         .limit(limit)
     ).all()
+    return [ProviderEventView.model_validate(row).model_copy(update={"message":safe_text(row.message)}) for row in rows]
 
 
 @router.post(

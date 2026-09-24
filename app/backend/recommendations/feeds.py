@@ -21,6 +21,8 @@ def put(db, key, data, policy):
     else:
         db.add(SearchCache(key=key, data=data, expires_at=utc_now() + timedelta(minutes=policy.feed_minutes)))
     db.flush()
+    from core.maintenance import trim_cache
+    trim_cache(db,key)
 
 
 def localized(profile, en, tr):

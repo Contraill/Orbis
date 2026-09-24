@@ -1,0 +1,56 @@
+const {chromium}=require('/verify/node_modules/playwright-core');
+const assert=require('node:assert/strict');
+// Bootstrap/delete operations are allowed only in an explicitly disposable fixture.
+assert.equal(process.env.ORBIS_PROVIDER_FIXTURE,'1','Use only an isolated disposable app/config/database');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
+ try {
+  const context=await browser.newContext();context.setDefaultTimeout(15000);
+  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+  await page.goto('http://127.0.0.1');
+  const bootstrap=await context.request.post('http://127.0.0.1/api/setup/owner',{data:{name:'Provider audit',password:'fixture-password-only',locale:'en-US'}});
+  assert.equal(bootstrap.status(),201);const owner=await bootstrap.json();
+  await page.evaluate(owner=>{sessionStorage.setItem('orbis.owner-session',owner.token);localStorage.setItem('media-app.selected-profile.v1',String(owner.owner_id));},owner);
+  const headers={Authorization:`Bearer ${owner.token}`};
+  const api=async(path,data)=>{const r=await context.request.post('http://127.0.0.1/api/admin/provider-editor/'+path,{headers,data});assert(r.ok(),await r.text());return r.json();};
+  await api('reference/override');
+  await page.goto('http://127.0.0.1/admin/providers/reference');
+  await page.getByRole('button',{name:'settings',exact:true}).click();
+  await page.getByLabel('Synthetic fixture token').fill('fixture-only-secret');
+  await page.getByLabel('Source label prefix').fill('Browser fixture');
+  await page.getByLabel('Fixture endpoint').fill('http://127.0.0.1:8765');
+  await page.getByLabel('Source lifetime').fill('120');
+  await page.getByLabel('Include backup source').uncheck();
+  await page.getByLabel('Include backup source').check();
+  await page.getByLabel('Fixture scenario').selectOption('primary_unavailable');
+  const saved=page.waitForResponse(r=>r.url().endsWith('/settings')&&r.request().method()==='PUT');
+  await page.getByRole('button',{name:'Save settings',exact:true}).click();
+  const result=await saved;assert.equal(result.status(),200);assert(!(await result.text()).includes('fixture-only-secret'));
+  await page.reload();await page.getByRole('button',{name:'settings',exact:true}).click();
+  assert.equal(await page.getByLabel('Source label prefix').inputValue(),'Browser fixture');
+  assert.equal(await page.getByLabel('Synthetic fixture token').inputValue(),'');
+  assert.match(await page.getByLabel('Synthetic fixture token').getAttribute('placeholder'),/Configured/);
+  await page.screenshot({path:'/artifacts/orbis-provider-settings.png'});
+  const health=await context.request.post('http://127.0.0.1/api/admin/providers/reference/test',{headers});
+  assert.equal(health.status(),200);assert.equal((await health.json()).healthy,true);
+  const resolved=await context.request.post('http://127.0.0.1/api/admin/providers/reference/resolve-test/movie/157336',{headers});
+  assert.equal(resolved.status(),200);
+  await api('',{provider_id:'no-settings',name:'No settings fixture'});
+  await page.goto('http://127.0.0.1/admin/providers/no-settings');
+  await page.getByRole('button',{name:'settings',exact:true}).click();
+  await page.getByText('Validate and activate this provider to load its settings schema.').waitFor();
+  await api('no-settings/activate');
+  await page.reload();await page.getByRole('button',{name:'settings',exact:true}).click();
+  await page.getByText('No configurable settings.',{exact:true}).waitFor();
+  await page.screenshot({path:'/artifacts/orbis-provider-empty-settings.png'});
+  await page.goto('http://127.0.0.1/admin/providers');
+  const card=page.locator('article').filter({has:page.getByRole('heading',{name:'No settings fixture',exact:true})});
+  page.once('dialog',d=>d.dismiss());await card.getByRole('button',{name:'Delete',exact:true}).click();
+  assert((await context.request.get('http://127.0.0.1/api/admin/provider-editor/no-settings',{headers})).ok());
+  page.once('dialog',d=>d.accept());await card.getByRole('button',{name:'Delete',exact:true}).click();
+  await page.getByText('no-settings deleted.',{exact:true}).waitFor();
+  assert.equal((await context.request.get('http://127.0.0.1/api/admin/provider-editor/no-settings',{headers})).status(),404);
+  assert.deepEqual(errors,[]);
+  console.log('PASS: schema form, secret masking/reload, local fixture health/resolution, draft/no-settings states, delete cancel/confirm; zero page errors');
+ } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1)});

@@ -61,7 +61,11 @@ export default function WatchTogetherPanel(props: Props) {
     const enforce = (state: string, position: number, action: string, rate = 1, duration = 0) => {
       const v = video();
       if (!v || v.readyState < 1 || resolving.current) return;
-      mutedUntil.current = performance.now() + 750;
+      // No-op heartbeat replies must not suppress a real native user action.
+      // Only media changes initiated by synchronization need echo suppression.
+      const changesPlayback = action === "seek" || (state === "paused" && !v.paused)
+        || (state !== "paused" && v.paused && !v.ended);
+      if (changesPlayback) mutedUntil.current = performance.now() + 750;
       if (action === "seek") v.currentTime = Math.max(0, Number.isFinite(v.duration) ? Math.min(position, v.duration) : position);
       try { v.playbackRate = rate; } catch { rateSupported.current = false; }
       resetRateAt.current = duration ? performance.now() + duration * 1000 : 0;

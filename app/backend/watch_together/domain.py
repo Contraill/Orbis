@@ -175,7 +175,7 @@ class Rooms:
         self.bump(room)
 
     def promote(self, room):
-        eligible = sorted((p for p in room.participants.values() if p.connection),key=lambda p:(p.joined,p.id))
+        eligible = sorted((p for p in room.participants.values() if p.connection and self.clock()-p.last_seen < self.policy.participant_stale),key=lambda p:(p.joined,p.id))
         if eligible:
             room.host = eligible[0].id
             self.bump(room)

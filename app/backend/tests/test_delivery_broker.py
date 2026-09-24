@@ -269,7 +269,14 @@ class DeliveryTests(HardeningTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertNotIn("top-secret", response.text)
         self.assertNotIn("media.example", response.text)
-        diagnostic = self.client.get("/api/admin/playback/delivery")
+        self.assertEqual(self.client.get("/api/admin/playback/delivery").status_code,401)
+        from main import app
+        from core.auth import require_owner
+        app.dependency_overrides[require_owner] = lambda: self.profile
+        try:
+            diagnostic = self.client.get("/api/admin/playback/delivery")
+        finally:
+            app.dependency_overrides.pop(require_owner,None)
         self.assertNotIn("top-secret", diagnostic.text)
         self.assertNotIn("media.example", diagnostic.text)
         self.assertEqual(diagnostic.json()[-1]["mode"], "full")

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from main import app
 from db.session import SessionLocal
 from db.models.profile import Profile
+from db.models.foundation import Installation
 from metadata.localization import store_metadata
 from metadata.schemas import CatalogDetails,SeasonDetails,EpisodeSummary
 from playback.service import upsert_playback_state,episode_identity
@@ -24,6 +25,12 @@ with SessionLocal() as db:
     if not db.get(Profile,1):
         db.add_all([Profile(id=1,name='Smoke A'),Profile(id=2,name='Smoke B')])
         db.commit()
+    # Browser fixture setup is complete; this does not grant owner credentials.
+    if not db.get(Installation,1):
+        db.add(Installation(id=1,owner_id=1))
+    else:
+        db.get(Installation,1).owner_id=1
+    db.get(Profile,1).is_owner=True
     upsert_playback_state(db,2,episode_identity(42,1,1),PlaybackStateUpdate(preferred_provider_id='smoke-b'))
     store_metadata(db,'en-US',CatalogDetails(tmdb_id=42,media_type='tv',title='Offline series',status='Ended',seasons=[
         {'tmdb_id':1,'season_number':1,'name':'First','episode_count':2},

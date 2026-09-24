@@ -1,0 +1,5 @@
+[
+  {"key":"movie:157336","title":"Synthetic movie fixture (TMDB identity only)","sources":[{"id":"primary"},{"id":"backup"}]},
+  {"key":"tv:1396:s1:e1","title":"Synthetic episode fixture (TMDB identity only)","sources":[{"id":"primary"},{"id":"backup"}]},
+  {"key":"tv:1396:s1:e2","title":"Synthetic next episode fixture","sources":[{"id":"primary"},{"id":"backup"}]}
+]

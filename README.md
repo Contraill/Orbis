@@ -4,7 +4,10 @@ Self-hosted, provider-agnostic media streaming platform.
 
 ## Status
 
-Early development. The initial Docker bootstrap is operational.
+Backend V1 hardening is complete; final frontend design is the next milestone.
+Start with the [V1 architecture/API index](docs/backend-v1.md),
+[verification report](docs/v1-hardening-report.md), and
+[backup/deployment contract](docs/v1-operations.md).
 
 ## Stack
 
@@ -18,7 +21,8 @@ Early development. The initial Docker bootstrap is operational.
 ## Architecture
 
 Orbis keeps the core application independent from individual content providers.
-Providers are isolated, replaceable adapters behind the backend playback layer.
+Providers are replaceable adapters behind the backend playback layer. Live
+provider Python is trusted owner code, not a security sandbox.
 
 Core flow:
 
@@ -37,6 +41,14 @@ docker compose up -d --build
 
 The backend applies Alembic migrations before starting. Runtime databases, logs,
 cache files, provider code, provider settings, and `.env` stay outside Git.
+
+## Provider authoring and public boundary
+
+Use the [neutral provider-authoring guide](docs/provider-authoring.md).
+The [post-freeze provider audit](docs/provider-public-readiness-audit.md) records
+the current private adapter inventory and the migration required before publication.
+example-provider remains private-installation factory source until that reviewed migration;
+this repository is not yet approved for public distribution.
 
 ## Verification
 

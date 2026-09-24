@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -17,6 +18,7 @@ import {
   saveProviderSettings,
   validateProviderDraft,
   revertToFactory,
+  type ProviderSettingsView,
 } from "../api";
 
 import type {
@@ -43,8 +45,9 @@ export default function ProviderEditorPage() {
 
   const [code, setCode] = useState("");
 
-  const [settingsText, setSettingsText] =
-    useState("{}");
+  const [settings, setSettings] = useState<ProviderSettingsView | null>(null);
+  const [changes, setChanges] = useState<Record<string, unknown>>({});
+  const settingsVersion = useRef<LiveProviderState | null>(null);
 
   const [validation, setValidation] =
     useState<ProviderValidation | null>(null);
@@ -77,9 +80,9 @@ export default function ProviderEditorPage() {
 
         setProvider(state);
         setCode(state.draft_code);
-        setSettingsText(
-          JSON.stringify(settings, null, 2),
-        );
+        setSettings(settings);
+        setChanges({});
+        settingsVersion.current = state;
       })
       .catch((err) => {
         if (!cancelled) {
@@ -96,6 +99,19 @@ export default function ProviderEditorPage() {
     };
   }, [providerId]);
 
+
+  useEffect(() => {
+    let cancelled = false;
+    const previous = settingsVersion.current;
+    if (!provider || (previous?.provider_id === provider.provider_id
+      && previous.active_code === provider.active_code
+      && previous.implementation === provider.implementation)) return;
+    settingsVersion.current = provider;
+    if (provider) getProviderSettings(providerId).then(value => {
+      if (!cancelled) { setSettings(value); setChanges({}); }
+    }).catch(reason => { if (!cancelled) setError(String(reason)); });
+    return () => { cancelled = true; };
+  }, [providerId, provider?.active_code, provider?.implementation]);
 
   async function saveDraft() {
     setBusy(true);
@@ -203,24 +219,9 @@ export default function ProviderEditorPage() {
     setMessage(null);
 
     try {
-      const parsed: unknown = JSON.parse(
-        settingsText,
-      );
-
-      if (
-        parsed === null ||
-        typeof parsed !== "object" ||
-        Array.isArray(parsed)
-      ) {
-        throw new Error(
-          "Provider settings must be a JSON object",
-        );
-      }
-
-      await saveProviderSettings(
-        providerId,
-        parsed as Record<string, unknown>,
-      );
+      const updated = await saveProviderSettings(providerId, changes);
+      setSettings(updated);
+      setChanges({});
 
       setMessage("Settings saved.");
     } catch (err) {
@@ -502,26 +503,38 @@ export default function ProviderEditorPage() {
             This file is outside Git.
           </p>
 
-          <textarea
-            className="settings-editor"
-            value={settingsText}
-            spellCheck={false}
-            onChange={(event) =>
-              setSettingsText(
-                event.target.value,
-              )
-            }
-          />
-
-          <button
-            className="button primary"
-            disabled={busy}
-            onClick={() =>
-              void saveSettings()
-            }
-          >
-            Save settings
-          </button>
+          {!settings?.schema_available ? <p>Validate and activate this provider to load its settings schema.</p>
+            : settings.schema.length === 0 ? <p>No configurable settings.</p>
+            : <>
+              {settings.schema.map(field => {
+                const value = field.key in changes ? changes[field.key] : settings.values[field.key];
+                const change = (next: unknown) => setChanges(old => ({ ...old, [field.key]: next }));
+                return <div key={field.key} className="form-field">
+                  <label htmlFor={`setting-${field.key}`}>{field.label}{field.required ? " *" : ""}</label>
+                  {field.sensitive ? <>
+                    <input id={`setting-${field.key}`} type="password" autoComplete="new-password"
+                      disabled={busy} maxLength={field.max_length} value={String(changes[field.key] ?? "")}
+                      placeholder={settings.configured_secrets.includes(field.key) ? "Configured — leave unchanged" : "Not configured"}
+                      onChange={event => change(event.target.value)} />
+                    <button disabled={busy} onClick={() => change(null)}>Clear {field.label}</button>
+                    {changes[field.key] === null ? <small>Will be cleared on save.</small> : null}
+                  </> : field.type === "boolean" ? <input id={`setting-${field.key}`} type="checkbox" disabled={busy}
+                    checked={Boolean(value)} onChange={event => change(event.target.checked)} />
+                    : field.type === "enum" ? <select id={`setting-${field.key}`} disabled={busy} value={String(value ?? "")}
+                      onChange={event => change(event.target.value)}>
+                        <option value="" disabled>Select</option>
+                        {field.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                    : <input id={`setting-${field.key}`} disabled={busy} required={field.required}
+                        type={field.type === "integer" ? "number" : field.type === "url" ? "url" : "text"}
+                        min={field.minimum ?? undefined} max={field.maximum ?? undefined} maxLength={field.max_length}
+                        value={String(value ?? "")} onChange={event => change(field.type === "integer"
+                          ? event.target.value === "" ? null : Number(event.target.value) : event.target.value)} />}
+                  <p className="muted">{field.description}</p>
+                </div>;
+              })}
+              <button className="button primary" disabled={busy} onClick={() => void saveSettings()}>Save settings</button>
+            </>}
         </article>
       )}
 

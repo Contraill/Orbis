@@ -3,12 +3,13 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from db.models.provider import ProviderEvent, ProviderState
+from core.errors import safe_text
 from providers.contract import MediaProvider, ProviderError
 from providers.registry import all_providers, get_provider
 from providers.resolution import resolution_broker
@@ -43,7 +44,7 @@ def utc_now() -> datetime:
 def provider_error_message(exc: Exception) -> str:
     if isinstance(exc, TimeoutError):
         return "Provider operation timed out"
-    return str(exc) or type(exc).__name__
+    return safe_text(str(exc)) or type(exc).__name__
 
 
 def circuit_is_open(state: ProviderState) -> bool:
@@ -141,7 +142,7 @@ class ProviderManager:
             last_failure_at=state.last_failure_at,
             last_health_check_at=state.last_health_check_at,
             last_latency_ms=state.last_latency_ms,
-            last_error=state.last_error,
+            last_error=safe_text(state.last_error),
         )
 
     def list_providers(
@@ -197,9 +198,14 @@ class ProviderManager:
                 provider_id=provider_id,
                 level=level,
                 event=event,
-                message=message,
+                message=safe_text(message),
             )
         )
+        db.flush()
+        # Bound events even when error traffic exceeds periodic cleanup throughput.
+        from core.maintenance import MAX_EVENTS
+        oldest = select(ProviderEvent.id).order_by(ProviderEvent.id.desc()).offset(MAX_EVENTS)
+        db.execute(delete(ProviderEvent).where(ProviderEvent.id.in_(oldest)))
 
     def _success(
         self,
@@ -236,7 +242,7 @@ class ProviderManager:
         state.failure_count += 1
         state.last_failure_at = utc_now()
         state.last_latency_ms = latency_ms
-        state.last_error = error
+        state.last_error = safe_text(error)
 
         if state.failure_count >= CIRCUIT_FAILURE_THRESHOLD:
             state.circuit_open_until = (
@@ -307,7 +313,7 @@ class ProviderManager:
             result_message = provider_error_message(exc)
             healthy = False
         else:
-            result_message = result.message
+            result_message = safe_text(result.message)
             healthy = result.healthy
 
         db.refresh(state)

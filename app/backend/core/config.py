@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_env: str = "production"
     app_name: str = "Orbis"
+    build_id: str = Field(default="local",max_length=80,pattern=r"^[a-zA-Z0-9._-]+$")
     tmdb_api_key: str | None = None
     tmdb_language: str = "tr-TR"
     provider_operation_timeout_seconds: float = Field(

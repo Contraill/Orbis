@@ -248,3 +248,14 @@ Verification on 2026-09-24:
   episode before building the final player overlay.
 - There is no chat, voting, guest accounts, subscription enforcement or shared
   media transport. Existing profile/session trust boundaries remain unchanged.
+
+## V1 hardening follow-up
+
+See [the final V1 verification report](v1-hardening-report.md) for the later actual
+H.264/AAC two-browser test, including 300ms simulated WebSocket round-trip delay.
+It supersedes the earlier “no graphical browser test” milestone limitation above.
+The verification player now suppresses echo only when synchronization changes
+media state; no-op heartbeats cannot swallow native host controls. The stale
+revision contract is unchanged. Real background-tab/poor-Wi-Fi and cross-device
+soak work remains. The backend continues to require one worker and loses rooms
+on restart.

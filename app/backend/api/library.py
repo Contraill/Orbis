@@ -7,7 +7,8 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from activity.service import continue_watching, metadata, progress_rows, recommendation_features, restart
-from db.models.foundation import LibraryIntent
+from db.models.foundation import LibraryIntent, ViewingProgress
+from core.auth import require_owner
 from db.models.profile import Profile, utc_now
 from db.session import get_db
 from playback.service import ContentIdentity
@@ -58,7 +59,9 @@ def get_continue(kind: Filter = "all", owner: Profile = Depends(profile), db: Se
 def hide(item: ItemInput, owner: Profile = Depends(profile), db: Session = Depends(get_db)):
     row = intent_row(db, owner.id, item)
     row.hidden_at = utc_now()
-    row.hidden_watched_seconds = sum(p.watched_seconds for p in progress_rows(db, owner.id) if (p.media_type, p.tmdb_id) == (item.media_type, item.tmdb_id))
+    from sqlalchemy import func
+    row.hidden_watched_seconds = db.scalar(select(func.coalesce(func.sum(ViewingProgress.watched_seconds),0)).where(
+        ViewingProgress.profile_id==owner.id,ViewingProgress.media_type==item.media_type,ViewingProgress.tmdb_id==item.tmdb_id))
     db.commit()
     return {"ok": True}
 
@@ -77,7 +80,7 @@ def history(owner: Profile = Depends(profile), db: Session = Depends(get_db), li
         "started_at": p.started_at, "last_watched_at": p.last_watched_at,
         "watched_seconds": p.watched_seconds, "meaningful": p.watched_seconds >= 60,
         "completions": p.completions, "rewatches": p.rewatches,
-        "metadata": metadata(db, p.media_type, p.tmdb_id, owner.locale)} for p in progress_rows(db, owner.id)[offset:offset+limit]]
+        "metadata": metadata(db, p.media_type, p.tmdb_id, owner.locale)} for p in db.scalars(select(ViewingProgress).where(ViewingProgress.profile_id==owner.id).order_by(ViewingProgress.last_watched_at.desc(),ViewingProgress.content_key).offset(offset).limit(limit))]
 
 
 @router.get("/my-list")
@@ -107,6 +110,6 @@ def set_negative(item: IntentInput, owner: Profile = Depends(profile), db: Sessi
     return {"ok": True}
 
 
-@router.get("/signals")
+@router.get("/signals",dependencies=[Depends(require_owner)])
 def signals(owner: Profile = Depends(profile), db: Session = Depends(get_db)):
     return recommendation_features(db, owner)

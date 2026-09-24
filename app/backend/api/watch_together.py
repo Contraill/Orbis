@@ -80,10 +80,15 @@ def sweep():
 @asynccontextmanager
 async def room_lifespan(app):
     async def janitor():
+        iteration = 0
         while True:
             await asyncio.sleep(5)
             with rooms.lock:
                 sweep()
+            iteration += 1
+            if iteration % 12 == 0:
+                from core.maintenance import run
+                await asyncio.to_thread(run,app)
     task = asyncio.create_task(janitor())
     try:
         yield

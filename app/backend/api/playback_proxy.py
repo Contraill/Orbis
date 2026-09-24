@@ -2,7 +2,8 @@ import asyncio
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from core.auth import require_owner
 from fastapi.responses import StreamingResponse
 
 from playback.hls import read_manifest, rewrite_manifest
@@ -31,13 +32,15 @@ async def _body(upstream, client, iterator=None, prefix=b""):
         await client.aclose()
 
 
-@router.get("/api/admin/playback/delivery")
+@router.get("/api/admin/playback/delivery", dependencies=[Depends(require_owner)])
 def delivery_diagnostics():
     return source_sessions.diagnostics()
 
 
-@router.api_route("/api/playback/sources/{session_id}", methods=["GET", "HEAD"])
-@router.api_route("/api/playback/sources/{session_id}/{resource_id}", methods=["GET", "HEAD"])
+@router.head("/api/playback/sources/{session_id}", include_in_schema=False)
+@router.head("/api/playback/sources/{session_id}/{resource_id}", include_in_schema=False)
+@router.get("/api/playback/sources/{session_id}")
+@router.get("/api/playback/sources/{session_id}/{resource_id}")
 async def proxy_playback_source(session_id: str, request: Request, resource_id: str = "root"):
     try:
         session = source_sessions.get(session_id, for_proxy=True)

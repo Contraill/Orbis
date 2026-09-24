@@ -61,7 +61,12 @@ def validate_provider_id(provider_id: str) -> str:
 def provider_dir(provider_id: str) -> Path:
     validate_provider_id(provider_id)
 
-    return LIVE_PROVIDER_ROOT / provider_id
+    directory = LIVE_PROVIDER_ROOT / provider_id
+    if directory.is_symlink() or (directory.exists() and directory.resolve().parent != LIVE_PROVIDER_ROOT.resolve()):
+        raise LiveProviderError("Provider directory must not be a symlink")
+    if directory.exists() and any(p.is_symlink() for p in directory.rglob('*')):
+        raise LiveProviderError("Provider files must not be symlinks")
+    return directory
 
 
 def template_code(
@@ -264,6 +269,9 @@ resource.setrlimit(
     resource.RLIMIT_FSIZE,
     (output_limit, output_limit),
 )
+resource.setrlimit(resource.RLIMIT_CPU, (6, 7))
+resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
 module_name = "_provider_validation"
 module = types.ModuleType(module_name)
 module.__file__ = path
@@ -285,6 +293,9 @@ if provider.id != expected_id:
     raise ValueError(
         "PROVIDER.id must match provider directory"
     )
+
+from providers.settings import definitions
+definitions(provider)
 
 print("__MEDIA_APP_PROVIDER__" + json.dumps({
     "provider_id": provider.id,
@@ -382,6 +393,11 @@ def validate_draft(provider_id: str) -> dict:
             }
 
         stdout_file.seek(0)
+        # Imported trusted code must not leave accidental child processes behind.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         stderr_file.seek(0)
         stdout = stdout_file.read(
             VALIDATION_OUTPUT_LIMIT + 1
@@ -742,15 +758,10 @@ def save_settings(
     temporary = directory / ".settings.tmp"
 
     with registry_lock():
-        temporary.write_text(
-            json.dumps(
-                settings,
-                ensure_ascii=False,
-                indent=2,
-            ) + "\n",
-            encoding="utf-8",
-        )
-        os.chmod(temporary, 0o600)
+        # Restrictive permissions from creation, not only after writing secrets.
+        with open(temporary,'w',encoding='utf-8',opener=lambda p,flags:os.open(p,flags,0o600)) as output:
+            os.chmod(temporary,0o600)
+            output.write(json.dumps(settings,ensure_ascii=False,indent=2)+'\n')
         os.replace(temporary, path)
 
     return settings

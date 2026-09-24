@@ -162,7 +162,7 @@ def update_profile(
     "/{profile_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def delete_profile(profile_id: int, db: Session = Depends(get_db), owner: Profile = Depends(require_owner)):
+async def delete_profile(profile_id: int, db: Session = Depends(get_db), owner: Profile = Depends(require_owner)):
     profile = db.get(Profile, profile_id)
 
     if profile is None:
@@ -175,5 +175,15 @@ def delete_profile(profile_id: int, db: Session = Depends(get_db), owner: Profil
         raise HTTPException(409, "The installation owner cannot be deleted")
     db.delete(profile)
     db.commit()
+    from playback.source_sessions import source_sessions
+    from watch_together.domain import rooms
+    from api.watch_together import broadcast
+    source_sessions.revoke_profile(profile_id)
+    with rooms.lock:
+        for room in rooms.rooms.values():
+            for participant in list(room.participants.values()):
+                if participant.profile_id == profile_id:
+                    rooms.leave(room,participant)
+            broadcast(room)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

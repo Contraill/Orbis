@@ -26,7 +26,7 @@ def raise_tmdb_error(exc: TMDBError) -> None:
     ) from exc
 
 
-@router.get("/search", response_model=CatalogPage)
+@router.get("/search", response_model=CatalogPage, deprecated=True)
 async def search_catalog(
     query: str = Query(min_length=1, max_length=200),
     page: int = Query(default=1, ge=1, le=500),

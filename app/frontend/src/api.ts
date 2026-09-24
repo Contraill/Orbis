@@ -56,6 +56,7 @@ function playbackPath(identity: PlaybackIdentity) {
 
 
 export class ApiError extends Error {
+  code?: string;
   status: number;
   detail: unknown;
 
@@ -104,12 +105,16 @@ export async function request<T>(
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
     let detail: unknown = null;
+    let code: string | undefined;
 
     try {
       const body = await response.json();
       detail = body.detail;
+      code = body.error?.code;
 
-      if (typeof body.detail === "string") {
+      if (body.error?.message) {
+        message = body.error.message;
+      } else if (typeof body.detail === "string") {
         message = body.detail;
       } else if (body.detail?.message) {
         message = body.detail.message;
@@ -138,11 +143,13 @@ export async function request<T>(
       // Keep HTTP status.
     }
 
-    throw new ApiError(
+    const error = new ApiError(
       response.status,
       message,
       detail,
     );
+    error.code = code;
+    throw error;
   }
 
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
@@ -459,10 +466,21 @@ export function rollbackProvider(
 }
 
 
+export interface ProviderSetting {
+  key: string; label: string; description: string;
+  type: "string" | "integer" | "boolean" | "enum" | "url" | "secret";
+  required: boolean; sensitive: boolean; default: unknown;
+  minimum: number | null; maximum: number | null; max_length: number; choices: string[];
+}
+export interface ProviderSettingsView {
+  schema: ProviderSetting[]; values: Record<string, unknown>;
+  configured_secrets: string[]; schema_available: boolean;
+}
+
 export function getProviderSettings(
   providerId: string,
 ) {
-  return request<Record<string, unknown>>(
+  return request<ProviderSettingsView>(
     `${EDITOR}/${providerId}/settings`,
   );
 }
@@ -472,7 +490,7 @@ export function saveProviderSettings(
   providerId: string,
   settings: Record<string, unknown>,
 ) {
-  return request<Record<string, unknown>>(
+  return request<ProviderSettingsView>(
     `${EDITOR}/${providerId}/settings`,
     {
       method: "PUT",

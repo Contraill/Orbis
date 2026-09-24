@@ -126,6 +126,15 @@ class SourceSessionRegistry:
         with self._lock:
             self._sessions.pop(session_id, None)
 
+    def revoke_profile(self, profile_id):
+        with self._lock:
+            for key in [k for k,s in self._sessions.items() if s.profile_id == profile_id]:
+                del self._sessions[key]
+
+    def cleanup(self):
+        with self._lock:
+            self._purge_locked(utc_now())
+
     def register(self, session, parent, url, kind):
         allowed = {origin(session.source.url), *(origin(item) for item in session.source.delivery.resource_origins)}
         if origin(url) not in allowed:

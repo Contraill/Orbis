@@ -24,6 +24,8 @@ def save_source(db, path, value, success, policy):
     expires = utc_now() + (timedelta(hours=policy.upstream_hours) if success else timedelta(minutes=5))
     db.execute(insert(SearchCache).values(key=source_key(path), data=value, expires_at=expires).on_conflict_do_update(
         index_elements=["key"], set_={"data": value, "expires_at": expires}))
+    from core.maintenance import trim_cache
+    trim_cache(db,source_key(path))
 
 
 async def warm(db, profile, taste, policy=POLICY, client=None):

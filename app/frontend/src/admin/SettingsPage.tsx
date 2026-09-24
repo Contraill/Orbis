@@ -17,13 +17,13 @@ export default function SettingsPage() {
         <p className="muted">
           Provider-specific settings are stored
           outside Git under /config/providers and
-          can be edited from each live provider.
+          can be edited from each provider editor. Fields are declared by the
+          active provider; secrets are stored server-side and are never returned.
         </p>
 
         <p className="muted">
-          Global circuit-breaker and playback policy
-          controls will move here when they become
-          user-configurable.
+          Providers without a settings schema display “No configurable settings”.
+          Enabled state, priority, source and quality remain separate controls.
         </p>
       </article>
     </section>

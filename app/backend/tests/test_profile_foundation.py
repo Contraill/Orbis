@@ -72,8 +72,8 @@ class FoundationTests(unittest.TestCase):
         self.client.headers.pop("Authorization")
         for path in ("/api/admin/providers", "/api/admin/provider-editor"):
             self.assertEqual(self.client.get(path, headers={"X-Profile-Id": str(owner)}).status_code, 401)
-        self.assertEqual(self.client.post("/api/admin/provider-editor/example-provider/activate", json={}).status_code, 401)
-        self.assertEqual(self.client.delete("/api/admin/provider-editor/mock-stream").status_code, 401)
+        self.assertEqual(self.client.post("/api/admin/provider-editor/reference/activate", json={}).status_code, 401)
+        self.assertEqual(self.client.delete("/api/admin/provider-editor/reference").status_code, 401)
         other = self.client.post("/api/profiles", json={"name": "Other"})
         self.assertEqual(other.status_code, 201, other.text)
         self.assertFalse(other.json()["is_owner"])
@@ -131,7 +131,7 @@ class FoundationTests(unittest.TestCase):
                 self.assertIn("delete-test", [p["provider_id"] for p in self.client.get("/api/admin/providers").json()])
                 with self.sessions() as db:
                     self.assertIsNotNone(db.get(ProviderState, "delete-test"))
-                self.assertEqual(self.client.delete("/api/admin/provider-editor/mock-stream").status_code, 404)
+                self.assertEqual(self.client.delete("/api/admin/provider-editor/reference").status_code, 404)
                 response = self.client.delete("/api/admin/provider-editor/delete-test")
                 self.assertEqual(response.status_code, 204, response.text)
                 self.assertFalse((root / "delete-test").exists())
