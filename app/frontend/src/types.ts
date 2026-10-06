@@ -98,6 +98,23 @@ export interface PlaybackResolutionSummary {
   attempts: ProviderAttempt[];
 }
 
+export interface AdminResolveResult extends PlaybackResolutionSummary {
+  sources: {
+    provider_id: string;
+    source_id: string | null;
+    source_label: string | null;
+    status: "reachable" | "failed";
+    latency_ms: number | null;
+    quality_classes: string[];
+    audio_languages: string[];
+    audio_kinds: string[];
+    subtitle_languages: string[];
+    burned_in_subtitles: boolean;
+    reason: string | null;
+    ranking_reasons: string[];
+  }[];
+}
+
 export interface PlaybackIdentity {
   profileId: number;
   mediaType: "movie" | "tv";
@@ -149,7 +166,7 @@ export interface PlaybackSession {
   choices: {
     providers: { provider_id: string; label: string }[];
     sources: { source_id: string; label: string }[];
-    qualities: { height: number; label: string }[];
+    qualities: { height: number; label: string; encoded_variants?: { width: number; height: number }[] }[];
     selected_quality_height: number | null;
     max_compatible_height?: number | null;
     quality_outcome?: string;
@@ -205,6 +222,7 @@ export interface Profile {
   name: string;
   avatar: string | null;
   avatar_seed: string;
+  avatar_config?: AvatarConfig | null;
   locale: "en-US" | "tr-TR";
   is_owner: boolean;
   preferred_audio_language: string | null;
@@ -213,6 +231,14 @@ export interface Profile {
   autoplay_next_episode: boolean;
   trailer_muted: boolean;
   onboarding_seeds: ContentSelection[];
+}
+
+export interface AvatarConfig {
+  shape?: "round" | "organic" | "boxy" | "capsule" | "nub" | "cloud" | "droplet" | "hexagon" | "sun" | "triangle" | null;
+  face_preset?: "soft" | "wide" | "tall" | "big_eyes" | "compact" | null;
+  expression?: "idle" | "happy" | "sad" | "mad" | "surprised" | "wink" | "sleepy" | "smug" | "unsure" | "scared" | "love" | "shy" | "sick" | "thinking" | null;
+  hue?: number | null;
+  tone?: number | "pale" | "mid" | "deep" | "bright" | null;
 }
 
 export interface ContentSelection { media_type: "movie" | "tv"; tmdb_id: number }
@@ -251,6 +277,13 @@ export interface CatalogPage {
 }
 
 export interface CatalogDetails extends CatalogItem {
+  original_language?: string | null;
+  credits: { tmdb_id: number; name: string; role: string; character?: string; order?: number | null }[];
+  production_companies: { tmdb_id: number; name: string }[];
+  videos: { site: string; key: string; name: string; language: string | null; type: string; official: boolean }[];
+  seasons: { tmdb_id: number; season_number: number; name: string; episode_count: number; poster_url: string | null }[];
+  related: { media_type: MediaType; tmdb_id: number; relation: string }[];
+  external_ids: Record<string, string>;
   genres: string[];
   runtime_minutes: number | null;
   status: string | null;

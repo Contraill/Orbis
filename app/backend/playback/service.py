@@ -292,6 +292,13 @@ class PlaybackService:
             if state is not None
             else None
         )
+        selection_profile = db.get(Profile, profile_id) if state is None else None
+        source_preferences = {
+            "preferred_audio_language": state.preferred_audio_language if state else selection_profile.preferred_audio_language,
+            "preferred_audio_kind": state.preferred_audio_kind if state else None,
+            "subtitles_enabled": state.subtitles_enabled if state else selection_profile.subtitles_enabled,
+            "preferred_subtitle_language": state.preferred_subtitle_language if state else selection_profile.preferred_subtitle_language,
+        }
 
         if identity.media_type == "movie":
             resolution = await self.manager.resolve_movie(
@@ -300,6 +307,7 @@ class PlaybackService:
                 preferred_provider_id=preferred_provider_id,
                 excluded_provider_ids=excluded_provider_ids,
                 require_healthy_source=require_healthy_source,
+                source_preferences=source_preferences,
             )
         else:
             if (
@@ -317,6 +325,7 @@ class PlaybackService:
                 preferred_provider_id=preferred_provider_id,
                 excluded_provider_ids=excluded_provider_ids,
                 require_healthy_source=require_healthy_source,
+                source_preferences=source_preferences,
             )
 
         if state is None:

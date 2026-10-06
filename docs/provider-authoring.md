@@ -47,6 +47,12 @@ In the standard Compose deployment `/config` is the host `config/` directory.
 Package/distribute a source module plus README/tests, not somebody's live directory,
 settings, versions, tokens or resolved URLs. Reuse the installed Orbis contracts;
 do not add your package to the core factory directory to install it locally.
+For a previously shipped adapter moved to private runtime, preserve its exact
+provider ID and place its validated active implementation at
+`config/providers/<id>/active.py`. Keep drafts, versions and `settings.json` in
+that same ignored directory. Remove an obsolete `factory-override` marker only
+after the private active implementation works without a factory module; that
+turns it into a normal user/live provider without changing saved preferences.
 Third-party Python dependencies are not dynamically installed by the editor. V1
 providers should use the shipped standard library/httpx/contracts or document a
 separately reviewed custom image. There is no second plugin installer.
@@ -59,6 +65,12 @@ labels are separate from IDs. An embed ID, signed URL, session token or Shaka
 variant ID is never a persistent source ID. Quality is a normalized height/label,
 usually discovered from HLS master variants; do not model every resolution as a
 separate provider. HTTP single-quality sources can declare `quality="360p"`.
+HLS master dimensions are normalized into consumer classes using both encoded
+width and height: a cropped 1920×816 rendition is still 1080p. Multiple encoded
+variants of one class appear once; raw dimensions remain in the choice contract.
+Do not report a provider audio `track_id` as a Shaka rendition ID. Provider IDs
+are stable adapter metadata; the player matches manifest audio by language,
+original/dub intent, label and roles, then confirms the active rendition.
 
 Return multiple independently usable sources when available. Their protocol,
 codec/HDR information (only if known), audio/subtitle tracks, expiry and optional

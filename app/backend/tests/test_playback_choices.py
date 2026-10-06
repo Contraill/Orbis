@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from playback.choices import manifest_qualities, selected_height
+from playback.quality import quality_class, quality_label
 from playback.delivery import DeliveryUnavailable
 from playback.delivery_policy import DeliveryPlan
 from playback.schemas import PlaybackPreferences, PlaybackStateUpdate
@@ -15,6 +16,22 @@ MASTER = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1920x1080\na.m
 
 
 class QualityTests(unittest.TestCase):
+    def test_cinematic_encoded_dimensions_map_to_delivery_classes(self):
+        for width, height, expected in [
+            (3840, 1600, 2160), (2560, 1080, 1440), (1920, 1080, 1080),
+            (1920, 960, 1080), (1920, 816, 1080), (1920, 800, 1080),
+            (1280, 720, 720), (1280, 530, 720), (854, 350, 480),
+        ]:
+            with self.subTest(width=width, height=height):
+                self.assertEqual(quality_class(width, height), expected)
+                self.assertEqual(quality_label(width, height), f'{expected}p')
+
+    def test_same_class_variants_use_one_choice_with_raw_dimensions(self):
+        master = ''.join(f'#EXT-X-STREAM-INF:RESOLUTION=1920x{height}\n{height}.m3u8\n' for height in (1080, 960, 816, 800))
+        qualities = manifest_qualities(master)
+        self.assertEqual([(q.height, q.label) for q in qualities], [(1080, '1080p')])
+        self.assertEqual([v.height for v in qualities[0].encoded_variants], [1080, 960, 816, 800])
+
     def test_actual_variants_only_normalized_unique_descending(self):
         qualities = manifest_qualities(MASTER + '#EXT-X-STREAM-INF:RESOLUTION=1280x720\nc.m3u8\n#EXT-X-STREAM-INF:RESOLUTION=640x360\n')
         self.assertEqual([q.height for q in qualities], [1080, 720])

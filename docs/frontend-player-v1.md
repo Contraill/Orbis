@@ -1,0 +1,13 @@
+# Orbis V1 player
+
+`/watch/:profileId/movie/:tmdbId` and `/watch/:profileId/tv/:tmdbId/season/:seasonNumber/episode/:episodeNumber` use the frozen Backend V1 playback contract. `PlaybackPage` owns resolution, persistence, delivery recovery, client-session heartbeats, and episode transitions. `MediaPlayer` owns the HTTP/Shaka media element. `PlayerOverlay` renders controls, menus, the episode drawer, fullscreen, and keyboard/touch behavior. The application-level Watch Together provider retains the room WebSocket across browse and player routes; each participant resolves their own source.
+
+Provider, Source, and Quality are separate controls. Each preference change posts to the existing `/choices` endpoint and keeps the current timeline position. Quality choices and compatibility outcomes come from the backend. Audio and subtitles use normalized track identities; a burned-in subtitle cannot be switched off. The overlay never stores or shows a stream URL, relay token, request header, or provider credential.
+
+The player reports progress through the existing playback state and session APIs. The next episode can be prepared near the end without marking it watched. On completion, autoplay shows an eight-second cancellable prompt if the lifecycle endpoint allows a next episode. Optional intro/recap/credits buttons appear only when the lifecycle response contains matching markers. The menu and prompt remain inside the fullscreen element.
+
+Watch Together is peer-controlled: any joined participant may start content, play, pause or seek. The server assigns revisions and rejects stale commands. Room state and synchronization never include media transport. Two browser sessions may use different providers, sources, qualities and audio tracks. The global WebSocket survives route transitions; refresh reconnects within the 60-second participant grace. Source resolution remains local to each player.
+
+The player uses `src/playback/player.css` and the shared Orbis glass tokens. The silk renderer is hidden on `/watch`, and Shaka stays in the lazy playback bundle. Controls auto-hide only during active playback with no open menu or focused control. Escape closes a menu, then fullscreen, then returns to the originating detail page.
+
+Known V1 limits: the backend exposes normalized previous/next episode references and catalog season details, so the drawer loads one season at a time; it does not prefetch a full series. Browser autoplay and fullscreen remain subject to browser permission. Track switching depends on tracks actually exposed by the selected provider. Watch Together rooms remain process-local and disappear on backend restart, as documented in `watch-together.md`.

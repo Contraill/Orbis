@@ -129,3 +129,13 @@ class UnifiedSearchPage(CursorPage):
     groups: dict[str, list[SearchResult]]
     warning: str | None = None
     candidate_limit: int = 600
+
+
+class GenreSearchResult(BaseModel):
+    genre_id: int
+    title: str
+    scope: Literal["all", "movie", "tv"]
+
+
+class GenreSearchPage(BaseModel):
+    results: list[GenreSearchResult]

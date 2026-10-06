@@ -59,7 +59,7 @@ Profiles expose name, independent `avatar_seed`, locale, preferred audio/subtitl
 languages, subtitle default, autoplay-next and trailer-muted flags, plus zero to
 five unique `{media_type: movie|tv, tmdb_id}` onboarding selections. Selection is
 optional and may be completed later. Renaming does not alter the stored avatar
-seed. `boring-avatars` renders SVG locally; Orbis centrally controls palette and
+seed. `Blobatar` renders SVG locally from the stable profile seed and optional validated avatar configuration; Orbis centrally controls palette and
 variant. No external avatar API is contacted.
 
 The active profile determines UI locale and catalog `profile_id` requests.

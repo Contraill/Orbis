@@ -18,7 +18,10 @@ from providers.source_policy import (
 SESSION_TTL = timedelta(hours=6)
 EXPIRED_SOURCE_REFRESH_GRACE = timedelta(minutes=10)
 MAX_SOURCE_SESSIONS = 256
-MAX_SESSION_RESOURCES = 4096
+# A feature film with separate video, dub and original-audio HLS playlists can
+# exceed 5,000 segment references. Keep the registry bounded while allowing
+# all advertised renditions to remain reachable for seeking and track changes.
+MAX_SESSION_RESOURCES = 8192
 MAX_TOTAL_RESOURCES = 32768
 
 

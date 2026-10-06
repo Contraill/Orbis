@@ -4,6 +4,7 @@ import {
 } from "react-router-dom";
 import { useProfile } from "../app/ProfileContext";
 import OwnerLogin from "../app/OwnerLogin";
+import { useText } from "../app/i18n";
 
 
 const tabs = [
@@ -17,8 +18,14 @@ const tabs = [
 
 
 export default function AdminShell() {
-  const { admin } = useProfile();
-  if (!admin) return <main className="admin-shell"><a href="/">← Orbis</a><OwnerLogin /></main>;
+  const { admin, profile } = useProfile();
+  const t = useText();
+  if (!profile?.is_owner) return <main className="admin-shell"><a href="/">← Orbis</a><p role="alert">{t("Admin access requires the owner profile.")}</p></main>;
+  if (!admin) return <main className="product-shell ambient admin-login-page"><div className="admin-login-wrap">
+    <img src="/brand/wordmark.png" alt="Orbis" className="admin-login-brand" />
+    <OwnerLogin />
+    <a className="admin-login-back" href="/">← {t("Back to Orbis")}</a>
+  </div></main>;
   return (
     <main className="admin-shell">
       <header className="admin-header">

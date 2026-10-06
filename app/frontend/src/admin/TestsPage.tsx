@@ -11,7 +11,7 @@ import {
 } from "../api";
 
 import type {
-  PlaybackResolutionSummary,
+  AdminResolveResult,
   ProviderAdminView,
   ResolutionFailureDetail,
 } from "../types";
@@ -41,7 +41,7 @@ export default function TestsPage() {
     useState("1");
 
   const [result, setResult] =
-    useState<PlaybackResolutionSummary | null>(null);
+    useState<AdminResolveResult | null>(null);
 
   const [failure, setFailure] =
     useState<ResolutionFailureDetail | null>(null);
@@ -281,6 +281,16 @@ export default function TestsPage() {
               ),
             )}
           </div>
+          {result?.sources.length ? <div className="diagnostic-source-list">
+            <h3>Resolved sources · profile preference order</h3>
+            {result.sources.map((source, index) => <div className="diagnostic-source" key={`${source.provider_id}-${source.source_id ?? index}`}>
+              <div><strong>{source.provider_id} · {source.source_label ?? source.source_id ?? "Source"}</strong><span className={`status ${source.status === "reachable" ? "healthy" : "failed"}`}>{source.status === "reachable" ? "Reachable" : "Failed"}</span></div>
+              <small>{source.latency_ms == null ? "—" : formatLatency(source.latency_ms)}</small>
+              <p>Quality: {source.quality_classes.join(", ") || "Unspecified"} · Audio: {source.audio_languages.join(", ") || "Unspecified"} {source.audio_kinds.length ? `(${source.audio_kinds.join(", ")})` : ""}</p>
+              <p>Subtitles: {source.subtitle_languages.join(", ") || "None"}{source.burned_in_subtitles ? " · burned in" : ""}</p>
+              <p>{source.ranking_reasons.join(" · ") || "Playable fallback"}{source.reason ? ` · ${source.reason}` : ""}</p>
+            </div>)}
+          </div> : null}
         </article>
       )}
     </section>

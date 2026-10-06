@@ -1,0 +1,11 @@
+{
+  "name": "Orbis",
+  "short_name": "Orbis",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060d17",
+  "theme_color": "#060d17",
+  "icons": [
+    { "src": "/brand/app-icon.png", "sizes": "1254x1254", "type": "image/png" }
+  ]
+}

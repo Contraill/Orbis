@@ -1,4 +1,4 @@
-# Watch Together backend
+# Watch Together: global room contract
 
 Watch Together coordinates playback intent and a canonical timeline for a small
 home server. Each participant resolves media and saves progress through their own
@@ -18,7 +18,8 @@ Do not run multiple backend replicas/workers without replacing this store and
 broadcast mechanism. Restarting the backend ends rooms; a short socket disconnect
 does not. No database migration or new dependency is needed.
 
-A room contains a 192-bit opaque ID, host participant ID, canonical movie or TV
+A room contains a 192-bit opaque ID, a separate cryptographically random six-digit
+join code, creator participant ID (retained for compatibility, not authority), optional canonical movie or TV
 season/episode identity, paused/playing state, anchored position/time, rate
 (currently 1x), revision, content revision, creation/activity timestamps, status
 and participants. Each participant privately maps an opaque participant ID to an
@@ -32,21 +33,25 @@ Default bounds/policies:
 | Setting | Default |
 | --- | --- |
 | Rooms / participants per room | 32 / 8 |
-| Host reconnect grace | 45 seconds after disconnection |
-| Participant heartbeat timeout | 90 seconds |
-| Disconnected participant retention | 90 seconds after disconnection |
+| Participant reconnect grace | 60 seconds after disconnection, for everyone |
+| Lobby heartbeat cadence | 20 seconds while no playable video is active |
+| Silent-connection timeout | 60 seconds after last heartbeat/activity |
+| Disconnected participant retention | 60 seconds after disconnection |
 | Idle room / absolute room lifetime | 30 minutes / 6 hours |
 | Closed room retention | 60 seconds |
 | Cleanup cadence | 5 seconds, plus request-time cleanup |
 | Incoming JSON / outgoing queue | 4096 bytes / 16 messages per connection |
 | Event rate | 10/second with a burst of 20 |
 
-A host reconnect within grace retains authority. After grace, the earliest joined
-**connected** participant becomes host; opaque participant ID breaks equal-time
-ties deterministically. With no eligible successor, the room closes and pauses.
-Explicit host leave promotes/closes immediately. A delayed old socket cannot
-mark its replacement disconnected. The lifespan janitor also expires abandoned
-rooms when no further requests arrive.
+A disconnect retains the same membership for 60 seconds, including on reload.
+Every participant may control playback and content. An explicit Leave removes only
+that participant; the room closes when the last member leaves or expires. A
+delayed old socket cannot mark its replacement disconnected.
+The lifespan janitor also expires abandoned rooms when no further requests arrive.
+Browser shutdown notifications are best effort, so an abnormal browser/OS kill
+may take up to the grace period after the last heartbeat to close the room. A full
+page reload retains the room handle in tab-scoped session storage and reconnects
+without issuing Leave. Normal in-app navigation also retains membership.
 
 ## HTTP contract
 
@@ -56,9 +61,12 @@ Responses are `Cache-Control: no-store`.
 
 | Endpoint | Body / result |
 | --- | --- |
-| `POST /api/watch-together/rooms` | `{content, position?: 0}`; returns room snapshot and own `participant_id`. |
+| `POST /api/watch-together/rooms` | `{}` creates a content-less lobby; optional `{content, position}` preserves player-entry compatibility. Returns `join_code`, opaque room snapshot and own `participant_id`. |
+| `POST /api/watch-together/join` | `{join_code:"482731"}`; generic invalid/expired response; per-session and per-source failed-attempt throttles. |
 | `POST /api/watch-together/rooms/{id}/join` | Idempotent for an existing member/session; returns snapshot and own participant ID. |
 | `GET /api/watch-together/rooms/{id}` | Member-only current snapshot. |
+| `POST /api/watch-together/rooms/{id}/transition` | Member-only `{revision, content, position?}`; applies the same canonical content event/revision path as WebSocket control. |
+| `POST /api/watch-together/rooms/{id}/exit` | Removes only the calling participant; last participant removal closes the room. |
 | `POST /api/watch-together/rooms/{id}/resolve` | `{content_revision}`; privately returns `{playback, room}` for this participant only. |
 
 A client session can belong to only one open room. A profile can still use
@@ -96,12 +104,12 @@ Server messages:
 
 - `welcome`: own participant ID.
 - `state`: complete room snapshot including `revision`, `content_revision`,
-  `host_id`, canonical content, projected `position`, `state`, `rate`, server time,
+  compatibility `host_id`, canonical content, projected `position`, `state`, `rate`, server time,
   lifecycle timestamps/status and participants/readiness. Join, connect, leave,
-  ready, host change, playback changes and close are broadcast as snapshots.
+  ready, playback changes and close are broadcast as snapshots.
 - `sync`: private correction advice for the reporting participant; never broadcast
   as another playback command.
-- `error`: stable code such as `host_only`, `stale_revision`, `invalid_event` or
+- `error`: stable code such as `stale_revision`, `invalid_event` or
   `next_episode_unavailable`. Revision conflicts include a fresh snapshot.
 - `replaced`: a newer connection for this participant superseded this socket.
 
@@ -116,10 +124,9 @@ All subsequent client events carry the last accepted `revision`:
 {"type":"next_episode","revision":11}
 ```
 
-Supported types are `ready`, `play`, `pause`, `seek`, `position`, `content`,
-`next_episode`, `preferences_changed`, `leave`, `close`. Only the host may change
-play/pause/seek/content or close the room. Non-hosts do not request/vote on control
-in v1. `content` requires a canonical `content` object. `seek`/`position` require
+Supported types are `heartbeat`, `ready`, `play`, `pause`, `seek`, `position`, `content`,
+`next_episode`, `preferences_changed`, `leave`. Any joined participant may submit
+play/pause/seek/content commands; the server sequences them. `content` requires a canonical `content` object. `seek`/`position` require
 position; play/pause may omit it to use the projected timeline. Other fields,
 including transport URLs, are rejected.
 
@@ -133,8 +140,9 @@ discarded if the room changed/closed or the participant left/revoked meanwhile.
 
 Slow consumers cannot stall the room: outgoing bounded queues coalesce to newer
 full snapshots; failed/slow sends terminate the connection. The client must treat
-snapshots as state, not replay them as commands. nginx now forwards the WebSocket
-Upgrade/Connection headers; no host networking configuration is changed.
+snapshots as state, not replay them as commands. nginx forwards WebSocket
+Upgrade/Connection and the original Host including port, so origin validation
+works on LAN/Tailscale HTTP as well as HTTPS.
 
 ## Timeline and drift
 
@@ -157,105 +165,62 @@ client reports every two seconds and suppresses echoes from applied corrections.
 ## Playback, transitions and history
 
 Private room resolution calls the existing provider/source/quality selection,
-capability checks and adaptive broker. A participant can use Moly/900p while
-another uses DBX/720p; readiness and intent are the only shared coordination.
+capability checks and adaptive broker. A participant can use one source and quality while
+another uses a different source and quality; readiness and intent are the only shared coordination.
 `preferences_changed` means the sender is preparing again; it carries no provider,
 source or quality details and does not alter the room timeline.
 
 Join/reconnect receives the current snapshot, resolves independently and starts at
 the canonical position/play state. Browser autoplay restrictions can still require
 a local user gesture. Source failure is local and leaves the room unchanged;
-retry is explicit. There is no all-participants-ready barrier: the host decides
-when to play.
+retry is explicit. There is no all-participants-ready barrier; any participant
+may resume the shared timeline.
 
 `next_episode` uses the existing cached lifecycle, including season boundaries and
 known air dates. If metadata is missing or the series ended it returns a normalized
 unavailable error. The ordinary detail/player lifecycle enrichment warms this
-cache; WebSocket commands do not fetch TMDB. Both generic content and next-episode
-transitions reset the room to paused/position zero and participant readiness to
-false. Participants independently inherit their own last resolved content's
+cache; WebSocket commands do not fetch TMDB. A generic content transition may
+include the initiating participant's resume position; next episode starts at zero. Both transitions
+pause the room and reset participant readiness. Participants independently inherit their own last resolved content's
 preferences and resolve the destination. No transition/preparation marks it watched.
 
 Each client continues its existing profile-specific playback state/activity saves.
 No join, ready, sync report or room command writes watch history. Existing activity
 aggregation handles sampled viewing, seeks, completion and progression; room
-messages cannot multiply those records. The debug player saves its own progress
+messages cannot multiply those records. The player saves its own progress
 before changing content. On movie/episode completion each client records its own
-completion; the host pauses the shared timeline. Room next episode is an explicit
-host action in v1; solo autoplay is suppressed while attached to a room.
+completion; any participant may pause or initiate a shared next-episode transition.
+The participant's local source/quality preferences remain private.
 
-## Minimal verification UI
+## Global frontend lifecycle
 
-The existing playback page has a Watch Together panel: create/join by ID,
-participants/readiness, host play/pause/seek-to-current-position, next episode,
-reconnect/retry source, leave/close and drift/rate diagnostics. Native host player
-controls also publish intent. Controls applied by synchronization are suppressed
-from echoing back. The shared timeline owns autoplay while attached; the ordinary
-player is otherwise unchanged. There is no final overlay redesign.
+One root-level React provider owns the room socket across browse/detail/player routes.
+The header exposes create/join, six-digit code, copyable invite URL, participants,
+connection status and Leave. An invite `/?join=482731` waits for profile
+selection, then opens the join panel. Ordinary browsing never publishes a
+content event. Detail Play/Resume/Start Over and episode changes by any participant publish a
+canonical transition. Other participants enter their own `/watch/{profile}/...` route and
+resolves playback independently. The existing player menu consumes the same room
+state, and leaving `/watch` keeps the room active. Profile switching explicitly
+leaves the room. A reload retains the tab-scoped membership handle and reconnects
+within the shared 60-second grace; browser/tab closure expires after that grace.
+No long internal room ID is shown in the consumer UI.
+The global client also checks room membership every 15 seconds while joined. A
+closed room can temporarily return HTTP 200 with `status: closed` before its
+retention window ends; the client clears its active-room indicator for that state
+as well as for missing/expired-room responses.
 
-## Verification and smoke fixture
+## V1 limitations and targeted verification
 
-`tests/test_watch_together.py` covers lifecycle, authority/revisions, timeline,
-drift, reconnect/stale cleanup/host grace, bounds, movie/episode identities, season
-transitions, private source independence/failure, history isolation and payload /
-cookie / Origin / revocation boundaries. Existing full-suite activity and playback
-tests continue to exercise meaningful aggregation and delivery behavior.
+The room is process-local; backend restart loses it. One Uvicorn worker is
+required. Browser autoplay may require a local gesture; the client first tries
+normal playback and offers an explicit audio-enable action when a muted fallback
+is necessary. A source-resolution failure affects that participant, not the
+canonical room or others. Timeline synchronization is approximate rather than
+frame accurate, especially if independently resolved sources have different
+edits. No chat, voice, account enforcement or persistent rooms are included.
 
-`tests/manual/watch_together_app.py` is a guarded offline runtime fixture. It only
-runs against `sqlite:////tmp/orbis-watch-smoke.db`, uses two mock providers and
-cached seasons, and must never be a production entrypoint. The companion
-`watch_together_smoke.py` drives **two separate cookie jars and WebSocket clients**
-through nginx, checking independent sources, play/pause/seek, reconnect, episode
-and season transitions, separate profile history, leave/close and absence of
-transport secrets from room snapshots.
-
-For the smoke run, backend and nginx shared only an isolated `--network none`
-container namespace. The test nginx config changed the backend target to loopback;
-Upgrade handling and built frontend assets were the production configuration.
-No host ports, host routes, production DB or external providers were used.
-
-Verification on 2026-09-24:
-
-- Full backend suite: **168 tests passed** in one broad run (including existing
-  playback/delivery/activity and fresh/legacy migration regression tests).
-- Subsequent host-grace edge-case fix: expanded focused room suite **18 passed**.
-- Frontend TypeScript and Vite production build passed. Existing React Router
-  directive and Shaka bundle-size warnings remain non-fatal.
-- Backend and frontend ARM64 production images built; aarch64 runtime, nginx
-  configuration and real two-client HTTP/WebSocket smoke passed.
-- `alembic check` reported no upgrade operations. Schema remains at
-  `e64a0c31f952`; no new migration or production DB change is needed.
-- `git diff --check` passed. No new runtime dependencies, Git/remotes operations
-  or host networking/DNS/routing changes were made.
-- No graphical browser or external/live provider playback test was run. The
-  checked-in network smoke uses separate HTTP cookie jars and real WebSockets,
-  not simulated media playback or a claim of cross-browser validation.
-
-## Remaining hardening
-
-- Rooms intentionally do not survive backend restart and cannot span multiple
-  workers/replicas. A shared coordination store is only needed if deployment scope
-  expands beyond the current single Raspberry Pi process.
-- This is timeline coordination, not frame-accurate synchronization. Add measured
-  RTT/clock-offset compensation and jitter/loss tests before promising tighter
-  synchronization outside a local tailnet. Different source edits/cuts cannot be
-  aligned automatically just from matching TMDB IDs.
-- Two real browsers/devices should validate native autoplay permissions, actual
-  media seeking/rate correction, background-tab throttling and source replacement.
-  The network smoke test does not claim browser/media playback coverage.
-- Soak-test slow/disconnecting clients and recovery under poor Wi-Fi. Decide the
-  final UX policy for host buffering, all-ready barriers and automatic shared next
-  episode before building the final player overlay.
-- There is no chat, voting, guest accounts, subscription enforcement or shared
-  media transport. Existing profile/session trust boundaries remain unchanged.
-
-## V1 hardening follow-up
-
-See [the final V1 verification report](v1-hardening-report.md) for the later actual
-H.264/AAC two-browser test, including 300ms simulated WebSocket round-trip delay.
-It supersedes the earlier “no graphical browser test” milestone limitation above.
-The verification player now suppresses echo only when synchronization changes
-media state; no-op heartbeats cannot swallow native host controls. The stale
-revision contract is unchanged. Real background-tab/poor-Wi-Fi and cross-device
-soak work remains. The backend continues to require one worker and loses rooms
-on restart.
+Targeted automated room tests cover peer commands, stale revisions, 60-second
+reconnection and room expiry. The release-candidate browser smoke must confirm
+actual video readiness and advancing `currentTime` on two clients, not merely
+matching navigation paths.

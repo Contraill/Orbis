@@ -27,6 +27,11 @@ async def mock_get(self, path, params=None):
                 "original_title": f"Original {n}", "overview": "Fixture overview", "genres": [{"id": 1, "name": "Dram" if tr else "Drama"}]}
     if path.startswith("/search/") or path.startswith("/trending/"):
         return {"page": 1, "total_pages": 1, "results": [movie(n) for n in range(1, 7)]}
+    if path.endswith(("/popular", "/recommendations", "/similar")):
+        if path.startswith("/tv/"):
+            return {"page": 1, "total_pages": 1, "results": [
+                {"id": n, "name": f"{'Dizi' if tr else 'Series'} {n}", "original_name": f"Series {n}"} for n in range(50, 56)]}
+        return {"page": 1, "total_pages": 1, "results": [movie(n) for n in range(1, 7)]}
     if "/season/" in path:
         return {"id": 500, "season_number": 1, "name": "Sezon 1" if tr else "Season 1", "episodes": [{"episode_number": n, "name": f"Episode {n}", "air_date": "2020-01-01"} for n in range(1, 4)]}
     if path.startswith("/tv/"):

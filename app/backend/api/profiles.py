@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal
 from sqlalchemy import select
@@ -20,9 +20,26 @@ class Seed(BaseModel):
     tmdb_id: int = Field(gt=0)
 
 
+class AvatarConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    shape: Literal["round", "organic", "boxy", "capsule", "nub", "cloud", "droplet", "hexagon", "sun", "triangle"] | None = None
+    face_preset: Literal["soft", "wide", "tall", "big_eyes", "compact"] | None = None
+    expression: Literal["idle", "happy", "sad", "mad", "surprised", "wink", "sleepy", "smug", "unsure", "scared", "love", "shy", "sick", "thinking"] | None = None
+    hue: int | None = Field(default=None, ge=0, lt=360)
+    tone: float | Literal["pale", "mid", "deep", "bright"] | None = None
+
+    @field_validator("tone")
+    @classmethod
+    def valid_tone(cls, value):
+        if isinstance(value, float) and not 0 <= value < 1:
+            raise ValueError("Avatar tone must be between 0 and 1")
+        return value
+
+
 class ProfilePreferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     avatar_seed: str | None = Field(default=None, min_length=1, max_length=255)
+    avatar_config: AvatarConfig | None = None
     locale: Literal["en-US", "tr-TR"] | None = None
     preferred_audio_language: str | None = Field(default=None, max_length=32, pattern=r"^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$")
     preferred_subtitle_language: str | None = Field(default=None, max_length=32, pattern=r"^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$")
@@ -78,6 +95,11 @@ class ProfileResponse(ProfilePreferences):
     name: str
     avatar: str | None
     is_owner: bool
+
+
+class ProfileSelfDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_name: str = Field(min_length=1, max_length=80)
 
 
 @router.get("", response_model=list[ProfileResponse])
@@ -158,11 +180,7 @@ def update_profile(
     return profile
 
 
-@router.delete(
-    "/{profile_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_profile(profile_id: int, db: Session = Depends(get_db), owner: Profile = Depends(require_owner)):
+async def remove_profile(profile_id: int, db: Session) -> Response:
     profile = db.get(Profile, profile_id)
 
     if profile is None:
@@ -187,3 +205,27 @@ async def delete_profile(profile_id: int, db: Session = Depends(get_db), owner: 
             broadcast(room)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile(profile_id: int, db: Session = Depends(get_db), owner: Profile = Depends(require_owner)):
+    return await remove_profile(profile_id, db)
+
+
+@router.post("/{profile_id}/self-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def self_delete_profile(
+    profile_id: int,
+    payload: ProfileSelfDelete,
+    x_profile_id: int = Header(alias="X-Profile-Id"),
+    db: Session = Depends(get_db),
+):
+    if x_profile_id != profile_id:
+        raise HTTPException(403, "Selected profile does not match")
+    profile = db.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(404, "Profile not found")
+    if profile.is_owner:
+        raise HTTPException(409, "The installation owner cannot be deleted")
+    if payload.confirm_name != profile.name:
+        raise HTTPException(400, "Profile name confirmation does not match")
+    return await remove_profile(profile_id, db)

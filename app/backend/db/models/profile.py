@@ -27,6 +27,7 @@ class Profile(Base):
         nullable=True,
     )
     avatar_seed: Mapped[str] = mapped_column(String(255), default="orbis", server_default="orbis")
+    avatar_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     locale: Mapped[str] = mapped_column(String(5), default="en-US", server_default="en-US")
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     preferred_audio_language: Mapped[str | None] = mapped_column(String(32))

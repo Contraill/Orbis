@@ -170,6 +170,39 @@ class HardeningTestCase(unittest.TestCase):
 
 
 class SourceRankingTests(unittest.TestCase):
+    def test_same_content_resolves_locally_for_different_profile_preferences(self):
+        turkish = source("provider", "turkish", quality="1080p")
+        turkish.source_id = "turkish"
+        original = source("provider", "original", quality="1080p")
+        original.source_id = "original"
+        original.audio_tracks = [AudioTrack(language="en", kind="original", track_id="audio-en")]
+        original.subtitle_tracks = [SubtitleTrack(language="tr", kind="manifest", track_id="subtitle-tr")]
+        sources = [turkish, original]
+        can = rank_sources(sources, preferred_audio_language="tr", subtitles_enabled=False)
+        zey = rank_sources(sources, preferred_audio_language="en", preferred_audio_kind="original",
+                           preferred_subtitle_language="tr", subtitles_enabled=True)
+        self.assertEqual(can[0].source_id, "turkish")
+        self.assertEqual(zey[0].source_id, "original")
+
+    def test_profile_audio_subtitles_health_and_fallback_rank_sources(self):
+        now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        preferred = source("provider", "preferred", quality="1080p", expires_at=now + timedelta(hours=1))
+        no_audio = source("provider", "no-audio", quality="1080p", expires_at=now + timedelta(hours=1))
+        no_audio.audio_tracks = []
+        no_subtitles = source("provider", "no-subtitles", quality="1080p", expires_at=now + timedelta(hours=1))
+        no_subtitles.subtitle_tracks = []
+        near = source("provider", "near", quality="1080p", expires_at=now + timedelta(seconds=30))
+        preferences = dict(preferred_audio_language="tr", preferred_audio_kind="dub", preferred_subtitle_language="tr", subtitles_enabled=True, now=now)
+        self.assertEqual(rank_sources([no_audio, preferred], **preferences)[0], preferred)
+        self.assertEqual(rank_sources([no_subtitles, preferred], **preferences)[0], preferred)
+        self.assertEqual(rank_sources([near, preferred], **preferences)[0], preferred)
+        self.assertEqual(len(rank_sources([no_audio, no_subtitles], **preferences)), 2)
+        without_subtitles = rank_sources([no_subtitles, preferred], preferred_subtitle_language="tr", subtitles_enabled=False, now=now)
+        self.assertEqual(without_subtitles[0], no_subtitles)
+        burned = source("provider", "burned", quality="1080p", expires_at=now + timedelta(hours=1))
+        burned.subtitle_tracks = [SubtitleTrack(language="tr", kind="burned_in", track_id="burned")]
+        self.assertEqual(rank_sources([burned, preferred], subtitles_enabled=False, now=now)[0], preferred)
+
     def test_ranking_is_deterministic_and_rejects_expired(self):
         now = datetime(2030, 1, 1, tzinfo=timezone.utc)
         expired = source(
@@ -297,6 +330,36 @@ class SourceRankingTests(unittest.TestCase):
             missing.selected_track.track_id,
             "tr-track",
         )
+
+
+class CrossProviderPreferenceTests(HardeningTestCase):
+    def test_later_provider_matching_profile_beats_playable_fallback(self):
+        fallback_source = source("fallback", "fallback", quality="1080p")
+        fallback_source.audio_tracks = [AudioTrack(language="en", kind="original")]
+        fallback_source.subtitle_tracks = []
+        matching_source = source("matching", "matching", quality="1080p")
+        providers = [SequencedProvider("fallback", 10, [[fallback_source]]),
+                     SequencedProvider("matching", 20, [[matching_source]])]
+        all_patch, get_patch = self.provider_patches(providers)
+        preferences = dict(preferred_audio_language="tr", preferred_audio_kind="dub",
+                           preferred_subtitle_language="tr", subtitles_enabled=True)
+        with all_patch, get_patch:
+            matching = asyncio.run(ProviderManager().resolve_movie(
+                self.db, 42, source_preferences=preferences))
+        self.assertEqual(matching.selected_provider_id, "matching")
+        self.assertEqual([attempt.status for attempt in matching.attempts], ["success", "success"])
+
+    def test_unavailable_language_keeps_first_playable_provider(self):
+        first = source("first", "first")
+        first.audio_tracks = [AudioTrack(language="en", kind="original")]
+        second = source("second", "second")
+        second.audio_tracks = [AudioTrack(language="fr", kind="dub")]
+        providers = [SequencedProvider("first", 10, [[first]]), SequencedProvider("second", 20, [[second]])]
+        all_patch, get_patch = self.provider_patches(providers)
+        with all_patch, get_patch:
+            result = asyncio.run(ProviderManager().resolve_movie(
+                self.db, 42, source_preferences={"preferred_audio_language": "tr"}))
+        self.assertEqual(result.selected_provider_id, "first")
 
 
 class RefreshOrchestrationTests(HardeningTestCase):

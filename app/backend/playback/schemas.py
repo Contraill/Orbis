@@ -163,9 +163,15 @@ class PlaybackSession(BaseModel):
     choices: "PlaybackChoices" = Field(default_factory=lambda: PlaybackChoices())
 
 
+class QualityVariant(BaseModel):
+    width: int
+    height: int
+
+
 class QualityChoice(BaseModel):
     height: int
     label: str
+    encoded_variants: list[QualityVariant] = Field(default_factory=list)
 
 
 class SourceChoice(BaseModel):

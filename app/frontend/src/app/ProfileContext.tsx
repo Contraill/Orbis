@@ -29,6 +29,7 @@ interface ProfileContextValue {
   createProfile: (profile: ProfileInput) => Promise<Profile>;
   reload: () => Promise<void>;
   setup: SetupStatus | null;
+  pickerLocale: Profile["locale"];
   admin: boolean;
   authenticate: (token: string) => Promise<void>;
 }
@@ -94,6 +95,7 @@ export function ProfileProvider({
   }, [reload]);
 
   const selectProfile = useCallback((profileId: number) => {
+    window.scrollTo(0, 0);
     if (adminId !== null && adminId !== profileId) {
       void logoutOwner().catch(() => {});
       sessionStorage.removeItem("orbis.owner-session");
@@ -134,7 +136,8 @@ export function ProfileProvider({
     (item) => item.id === selectedId,
   ) ?? null;
   const admin = Boolean(profile?.is_owner && adminId === profile.id);
-  useEffect(() => { document.documentElement.lang = profile?.locale ?? setup?.locale ?? "en-US"; }, [profile?.locale, setup?.locale]);
+  const pickerLocale = profiles.find(item => item.is_owner)?.locale ?? setup?.locale ?? "en-US";
+  useEffect(() => { document.documentElement.lang = profile?.locale ?? pickerLocale; }, [profile?.locale, pickerLocale]);
 
   const value = useMemo<ProfileContextValue>(() => ({
     profiles,
@@ -145,7 +148,7 @@ export function ProfileProvider({
     clearProfile,
     createProfile,
     reload,
-    setup, admin, authenticate,
+    setup, pickerLocale, admin, authenticate,
   }), [
     profiles,
     profile,
@@ -155,7 +158,7 @@ export function ProfileProvider({
     clearProfile,
     createProfile,
     reload,
-    setup, admin, authenticate,
+    setup, pickerLocale, admin, authenticate,
   ]);
 
   return (

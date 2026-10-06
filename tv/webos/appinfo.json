@@ -1,0 +1,13 @@
+{
+  "id": "com.contraill.orbis",
+  "title": "Orbis",
+  "type": "web",
+  "main": "index.html",
+  "icon": "icon.png",
+  "version": "1.0.0",
+  "vendor": "Contraill",
+  "appDescription": "Your media, one interface",
+  "resolution": "1920x1080",
+  "requiredACG": [],
+  "disableBackHistoryAPI": false
+}

@@ -1,8 +1,8 @@
 # Orbis Backend V1
 
 Contract status: **V1 FROZEN — 2026-09-24** (trusted personal/family deployment). This page is the entry point for final
-frontend development. See [hardening verification](v1-hardening-report.md) for the
-release decision and practical limits. No `/api/v1` alias has been introduced:
+frontend development. The contracts below describe its
+practical limits. No `/api/v1` alias has been introduced:
 existing `/api` paths are the V1 contract; the service/OpenAPI version is `1.0.0`.
 
 ## Contract references
@@ -56,9 +56,12 @@ Prefixes in braces below are literal path parameters, not alternative APIs.
 | Health/version | `GET /api/health` | Public status, `version`, `api_version` |
 | Setup | `GET /api/setup`, `PUT /api/setup/locale`, `POST /api/setup/owner` | First-run locale/bootstrap only; closed once owner exists |
 | Owner | `POST /api/setup/login`, `GET /api/setup/session`, `POST /api/setup/logout` | Credential issuance, validation, revocation; login lockout |
-| Profiles | `GET, POST /api/profiles`; `GET, PATCH, DELETE /api/profiles/{profile_id}` | List/object; DELETE owner-only, 204 |
+| Profiles | `GET, POST /api/profiles`; `GET, PATCH, DELETE /api/profiles/{profile_id}`; `POST /api/profiles/{profile_id}/self-delete` | List/object; DELETE remains owner-only; self-delete requires matching `X-Profile-Id` and exact `confirm_name`, returns 204; owner cannot be deleted |
+
 | Search | `GET /api/catalog/unified-search` | `query`, `kind`, `limit`, `cursor`, optional `online`; results/groups/next_cursor |
 | Catalog browsing / My List browsing | `GET /api/catalog/items` | `kind`, `profile_id`, `my_list`, `limit`, `cursor`; results/next_cursor |
+| Genre browsing (additive V1 extension) | `GET /api/catalog/genres/{genre_id}/items` | Canonical TMDB genre ID; `kind=all,movie,tv`, `limit`, `cursor`; localized title, results, next_cursor |
+| Genre search (additive V1 extension) | `GET /api/catalog/genres?query=&kind=` | Bilingual local genre matches with canonical ID, localized title and all/movie/tv scope; only genres represented in the cached catalog |
 | Rich details | `GET /api/catalog/movie/{tmdb_id}`, `/tv/{tmdb_id}`, `/tv/{tmdb_id}/season/{season_number}` | Canonical identity + localized detail object |
 | Credits | `GET /api/catalog/person/{tmdb_id}/credits`, `/company/{tmdb_id}/credits` | Cursor results with role context |
 | Ratings | `GET /api/catalog/{kind}/{tmdb_id}/ratings` | Source/provenance-aware optional ratings |
@@ -78,6 +81,8 @@ Prefixes in braces below are literal path parameters, not alternative APIs.
 | Session/marker administration | `/api/admin/sessions`, `/api/admin/episode-markers/tv/...` | Owner only |
 | Diagnostics | `/api/admin/system`, `/api/admin/watch-together/rooms`, `/api/admin/playback/delivery`, `/api/feeds/profiles/{profile_id}/diagnostics/{snapshot_id}`, `L/signals` | Owner only, safe structured state |
 
+Viewer profiles are selectable local profiles, not authenticated accounts. The self-delete confirmation protects against accidental deletion; `X-Profile-Id` is selection context, not a security credential. Deletion removes that profile's playback, history, list and preferences through database cascades, revokes its delivery sessions and removes it from active Watch Together rooms. The installation owner remains protected server-side.
+
 Playback `{content}` is `movie/{tmdb_id}` or
 `tv/{tmdb_id}/season/{season_number}/episode/{episode_number}`. `{episode}` is the
 latter only. Admin provider resolve tests retain historical `season`/`episode`
@@ -96,15 +101,20 @@ parameter names; the wire path shape and canonical identity are unchanged.
   discoverability or recommendation identity. English fallback is permitted.
   Existing shelf titles and provider messages are display text; render by `kind`,
   `context_key` and stable codes, never parse translated titles for behavior.
-- Search/catalog limit is 1–50, default 20. Feed batch_size is 1–5, default 3,
-  with up to six items per shelf and 14 shelves per materialization. Home mixes
+- Search/catalog limit is 1–50, default 20. Genre browsing defaults to 24.
+  Feed batch_size is 1–5, default 3, with up to six items per normal shelf.
+  Home mixes
   movies/TV; Movies and Series enforce their media scopes.
 - Treat cursors as opaque. Keep query/profile/locale/filter/page-size scope
   unchanged across continuation. A replay returns the cached page while valid.
-  `next_cursor:null` means exhausted. Never manufacture offsets from cursor text.
-- Catalog uses a creation-time ceiling and keyset order; search uses bounded
-  candidates and cached remote continuation. Feed cursors reference a materialized
-  snapshot and item/shelf deduplication. Cursor reads do not repeatedly warm TMDB.
+  `next_cursor:null` means exhausted for catalog/genre queries; a main discovery
+  feed with viable semantic templates continues through controlled recycling.
+  Never manufacture offsets from cursor text.
+- Catalog uses a creation-time ceiling and keyset order; mixed-genre queries
+  order by canonical TMDB ID so the first page can contain both media types.
+  Search uses bounded candidates and cached remote continuation. Feed cursors
+  reference a bounded candidate/template snapshot plus generation and recency
+  state. Cursor reads do not repeatedly warm TMDB.
 - HTTP 409 `feed_invalidated` means meaningful profile signals changed: restart
   the feed. HTTP 410 means TTL/capacity expiration: restart the query/feed. HTTP
   422 `cursor_scope_mismatch` means the supplied cursor belongs to another scope.
@@ -149,8 +159,8 @@ renames/removals or changed identity semantics require a new contract version.
 
 ## Post-freeze provider settings security correction
 
-V1 remains frozen. The focused [provider audit](provider-public-readiness-audit.md)
-changes only the defective provider Settings contract: owner-only GET/PUT at the
+V1 remains frozen. A prior security correction to provider Settings is
+documented in the [provider-authoring guide](provider-authoring.md): owner-only GET/PUT at the
 existing `provider-editor/{id}/settings` paths now return
 `{schema, values, configured_secrets, schema_available}`. Secret values are omitted,
 never returned in plaintext. PUT retains `{settings:{...}}`, merges supplied

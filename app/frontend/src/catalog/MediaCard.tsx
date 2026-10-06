@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import type { CatalogItem } from "../types";
+import { useText } from "../app/i18n";
 
 
 function releaseYear(date: string | null) {
@@ -8,29 +9,27 @@ function releaseYear(date: string | null) {
 }
 
 
-export default function MediaCard({ item }: { item: CatalogItem }) {
+export default function MediaCard({ item }: { item: CatalogItem & { new_season?: number | null } }) {
+  const t = useText();
   return (
     <Link
-      className="media-card"
+      className="orbis-media-card"
       to={`/${item.media_type}/${item.tmdb_id}`}
     >
-      <div className="media-poster">
+      <div className="orbis-poster">
+        <span className="poster-fallback" aria-hidden="true">{item.title.slice(0, 1)}</span>
         {item.poster_url ? (
           <img
             src={item.poster_url}
             alt=""
             loading="lazy"
+            onError={event => { event.currentTarget.hidden = true; }}
           />
-        ) : (
-          <span>{item.title.slice(0, 1)}</span>
-        )}
-        <span className="media-kind">
-          {item.media_type === "tv" ? "Series" : "Movie"}
-        </span>
+        ) : null}
       </div>
       <strong>{item.title}</strong>
       <small>
-        {releaseYear(item.release_date)}
+        {item.new_season ? `${t("Season")} ${item.new_season}` : `${t(item.media_type === "tv" ? "Series" : "Movies")} · ${releaseYear(item.release_date)}`}
         {item.vote_average !== null
           ? ` · ★ ${item.vote_average.toFixed(1)}`
           : ""}

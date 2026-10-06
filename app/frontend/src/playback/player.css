@@ -1,0 +1,116 @@
+.orbis-player-route { position: fixed; inset: 0; z-index: 100; background: #000; color: var(--text-primary); }
+.orbis-player { position: relative; width: 100%; height: 100%; height: 100dvh; overflow: hidden; background: #000; outline: none; }
+.orbis-player-video,.playback-stage { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none; background: #000; }
+.orbis-player-video video { width: 100%; height: 100%; object-fit: contain; aspect-ratio: auto; }
+.orbis-player-reveal { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; cursor: default; }
+.orbis-player-glass { border: 1px solid var(--glass-border); background: var(--glass-standard); box-shadow: var(--shadow-soft), inset 0 1px var(--glass-highlight); backdrop-filter: blur(var(--blur-standard)) saturate(1.15); -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(1.15); }
+.orbis-player-top,.orbis-player-bottom,.orbis-player-center,.orbis-player-skip,.orbis-player-next { position: absolute; z-index: 2; transition: opacity .22s ease, transform .22s ease; }
+.orbis-player-top { top: max(20px, env(safe-area-inset-top)); left: clamp(16px, 3vw, 56px); display: flex; align-items: center; gap: 18px; max-width: min(620px, calc(100% - 32px)); padding: 8px 20px 8px 9px; border-radius: 17px; }
+.orbis-player-top div { display: grid; gap: 1px; min-width: 0; }
+.orbis-player-top strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: clamp(16px, 1.3vw, 24px); letter-spacing: -.025em; }
+.orbis-player-top small { font-size: 13px; color: var(--text-secondary); }
+.orbis-player button { font: inherit; color: var(--text-primary); cursor: pointer; }
+.orbis-player button:disabled { opacity: .45; cursor: default; }
+.orbis-player-back { min-width: 44px; height: 44px; border: 0; border-radius: 11px; background: transparent; font-size: 26px !important; }
+.orbis-player-back:hover,.orbis-player-action:hover,.orbis-player-menu button:hover:not(:disabled) { background: rgba(92, 202, 204, .15); }
+.orbis-player-center { top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: clamp(16px, 3vw, 42px); }
+.orbis-player-center button { width: clamp(54px, 5vw, 82px); height: clamp(54px, 5vw, 82px); display: grid; place-items: center; position: relative; border: 1px solid rgba(180,232,233,.29); border-radius: 50%; background: rgba(3, 18, 28, .57); box-shadow: 0 12px 35px rgba(0,0,0,.28); backdrop-filter: blur(10px); font-size: clamp(29px, 3vw, 42px); line-height: 1; }
+.orbis-player-center button.main { width: clamp(72px, 6.5vw, 104px); height: clamp(72px, 6.5vw, 104px); background: rgba(13, 62, 74, .78); border-color: rgba(127,235,223,.65); color: #e9fffb; font-size: clamp(31px, 3vw, 44px); }
+.orbis-player-center button small { position: absolute; bottom: 10px; font-size: 12px; font-weight: 700; }
+.orbis-player-bottom { left: clamp(16px, 3vw, 56px); right: clamp(16px, 3vw, 56px); bottom: max(20px, env(safe-area-inset-bottom)); padding: 14px clamp(15px, 2vw, 26px) 12px; border-radius: 20px; }
+.orbis-player-time { display: flex; align-items: center; gap: 13px; font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 14px; }
+.orbis-player-time > span { min-width: 42px; }
+.orbis-player-track { flex: 1; height: 4px; border-radius: 4px; background: rgba(241,252,252,.18); overflow: hidden; }
+.orbis-player-buffered { height: 100%; background: rgba(194,235,235,.35); }
+.orbis-player-time input { position: absolute; left: 75px; right: 75px; width: calc(100% - 150px); height: 24px; margin: 0; opacity: .95; background: transparent; accent-color: var(--accent-primary); cursor: pointer; }
+.orbis-player-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; margin-top: 13px; }
+.orbis-player-action { min-height: 43px; padding: 7px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text-secondary) !important; font-size: 14px !important; }
+.orbis-player-action[aria-expanded="true"] { color: var(--focus-ring) !important; background: rgba(84, 192, 201, .16); }
+.orbis-player-menu { position: absolute; z-index: 5; bottom: clamp(145px, 16vh, 190px); right: clamp(16px, 3vw, 56px); width: min(360px, calc(100vw - 32px)); max-height: min(61vh, 620px); overflow: auto; border-radius: 19px; padding: 17px; }
+.orbis-player-menu[hidden],.orbis-player-menu [hidden] { display: none; }
+.orbis-player-menu.wide { width: min(540px, calc(100vw - 32px)); }
+.orbis-player-menu header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.orbis-player-menu h2 { margin: 0; font-size: 19px; }
+.orbis-player-menu header button { width: 38px; height: 38px; border: 0; border-radius: 9px; background: transparent; font-size: 26px; }
+.orbis-player-options { display: grid; gap: 4px; }
+.orbis-player-options button,.orbis-player-episode-nav button,.orbis-room-panel button,.orbis-player-episodes select { min-height: 46px; width: 100%; padding: 9px 13px; border: 1px solid transparent; border-radius: 10px; background: rgba(117, 195, 202, .08); text-align: left; }
+.orbis-player-options button { display: flex; justify-content: space-between; align-items: center; }
+.orbis-player-options button.selected { background: rgba(86, 194, 194, .2); border-color: rgba(140, 231, 228, .34); }
+.orbis-player-options p { margin: 9px 5px 3px; color: var(--text-secondary); font-size: 13px; }
+.orbis-player-episodes { display: grid; gap: 13px; }
+.orbis-player-episode-nav { display: flex; gap: 8px; }
+.orbis-player-episodes label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-secondary); }
+.orbis-player-episodes select { width: auto; color: var(--text-primary); border-color: var(--glass-border); }
+.orbis-player-toggle input { width: 22px; height: 22px; accent-color: var(--accent-primary); }
+.orbis-player-episode-list { display: grid; gap: 6px; max-height: 35vh; overflow: auto; }
+.orbis-player-episode-list button { display: flex; align-items: center; gap: 13px; min-height: 80px; padding: 8px; border: 1px solid transparent; border-radius: 10px; text-align: left; background: rgba(108, 188, 195, .06); }
+.orbis-player-episode-list button.current { border-color: var(--glass-border); background: rgba(86, 194, 194, .15); }
+.orbis-player-episode-list img,.orbis-player-episode-placeholder { width: 104px; height: 60px; border-radius: 7px; object-fit: cover; background: var(--background-elevated); flex: none; }
+.orbis-player-episode-placeholder { display: grid; place-items: center; }
+.orbis-player-episode-list button > span:last-child { display: grid; gap: 3px; }
+.orbis-player-episode-list small { color: var(--text-muted); font-size: 12px; }
+.orbis-player-episode-list strong { font-weight: 600; }
+.orbis-room-panel { display: grid; gap: 10px; }
+.orbis-room-panel p { margin: 2px 0; color: var(--text-secondary); }
+.orbis-room-panel label { display: grid; gap: 6px; }
+.orbis-room-panel input { width: 100%; min-height: 44px; border: 1px solid var(--glass-border); border-radius: 9px; padding: 8px 12px; background: rgba(4, 16, 26, .7); color: var(--text-primary); }
+.orbis-room-panel button { text-align: center; border-color: var(--glass-border); }
+.orbis-room-code button { width: auto; max-width: 100%; overflow-wrap: anywhere; margin-left: 8px; }
+.orbis-room-participants { list-style: none; margin: 5px 0; padding: 0; display: grid; gap: 6px; }
+.orbis-room-participants li { display: flex; justify-content: space-between; gap: 10px; padding: 10px; border-radius: 10px; background: rgba(84,173,187,.09); }
+.orbis-room-participants small { color: var(--text-muted); }
+.orbis-room-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.orbis-room-actions button { width: auto; flex: 1 1 100px; }
+.orbis-room-actions .danger { color: var(--danger); }
+.orbis-player-skip,.orbis-player-next { right: clamp(16px, 3vw, 56px); bottom: 205px; padding: 11px 17px; border: 1px solid var(--glass-border); border-radius: 10px; background: var(--glass-overlay); }
+.orbis-player-next { bottom: 255px; }
+.orbis-player-status { position: absolute; z-index: 4; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 14px 20px; border-radius: 12px; background: var(--glass-overlay); }
+.orbis-player-next-prompt,.orbis-player-notice { position: absolute; z-index: 9; top: 95px; right: clamp(16px, 3vw, 56px); display: flex; align-items: center; gap: 12px; max-width: min(500px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--glass-overlay); backdrop-filter: blur(14px); }
+.orbis-player-notice { top: 155px; }
+.orbis-player-next-prompt button,.orbis-player-notice button { border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 11px; background: var(--glass-standard); color: var(--text-primary); }
+.orbis-player-state { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; gap: 20px; padding: 24px; text-align: center; background: #02080e; }
+.orbis-player-state img { width: 72px; height: 72px; object-fit: contain; }
+.orbis-player-state h1 { margin: 0; }
+.orbis-player-state p { margin: 0; color: var(--text-secondary); }
+.orbis-player-state button { padding: 12px 20px; border: 1px solid var(--glass-border); border-radius: 11px; background: var(--glass-standard); color: var(--text-primary); }
+.orbis-player.controls-hidden .orbis-player-top,.orbis-player.controls-hidden .orbis-player-bottom,.orbis-player.controls-hidden .orbis-player-center,.orbis-player.controls-hidden .orbis-player-skip,.orbis-player.controls-hidden .orbis-player-next { opacity: 0; pointer-events: none; }
+.orbis-player.controls-hidden { cursor: none; }
+
+.orbital-loading { display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: center; }
+.orbital-loading-overlay { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: rgba(0, 4, 8, .22); }
+.orbital-loading-overlay .orbital-acquisition { width: clamp(88px, 10vw, 128px); height: auto; }
+.orbital-acquisition { width: 156px; height: 156px; overflow: visible; filter: drop-shadow(0 0 9px rgba(69, 199, 205, .18)); }
+.orbital-arc { fill: none; stroke-width: 1.3; stroke-linecap: round; stroke-dasharray: 76 310; transform-origin: 80px 80px; }
+.arc-one { stroke: #63d3d4; animation: orbital-lock-one 3.2s ease-in-out infinite; }
+.arc-two { stroke: #3999bd; animation: orbital-lock-two 3.2s ease-in-out infinite; }
+.arc-three { stroke: #3ba698; animation: orbital-lock-three 3.2s ease-in-out infinite; }
+.orbital-core { fill: #8bebe5; opacity: .3; animation: orbital-focus 3.2s ease-in-out infinite; }
+@keyframes orbital-lock-one { 0% { transform: rotate(-80deg); opacity: .35; } 48% { transform: rotate(68deg); opacity: .9; } 72% { transform: rotate(92deg); opacity: .7; } 100% { transform: rotate(210deg); opacity: .3; } }
+@keyframes orbital-lock-two { 0% { transform: rotate(165deg); opacity: .25; } 48% { transform: rotate(14deg); opacity: .8; } 72% { transform: rotate(-12deg); opacity: .65; } 100% { transform: rotate(-152deg); opacity: .25; } }
+@keyframes orbital-lock-three { 0% { transform: rotate(65deg); opacity: .2; } 48% { transform: rotate(-70deg); opacity: .65; } 72% { transform: rotate(-91deg); opacity: .5; } 100% { transform: rotate(-200deg); opacity: .2; } }
+@keyframes orbital-focus { 0%,35%,100% { opacity: .15; } 55%,70% { opacity: .8; } }
+@media (prefers-reduced-motion: reduce) { .orbital-arc,.orbital-core { animation: none; opacity: .65; } }
+.orbis-player.controls-hidden .orbis-player-top { transform: translateY(-10px); }
+.orbis-player.controls-hidden .orbis-player-bottom { transform: translateY(10px); }
+.orbis-player.controls-hidden .orbis-player-center { transform: translate(-50%, -45%); }
+.orbis-player :is(button,input,select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; box-shadow: 0 0 0 5px rgba(32, 117, 133, .4), 0 0 20px rgba(85, 213, 213, .45); }
+@media (max-width: 700px) {
+ .orbis-player-top { top: max(9px, env(safe-area-inset-top)); left: 9px; padding: 5px 13px 5px 5px; }
+ .orbis-player-top strong { font-size: 15px; }
+ .orbis-player-center { gap: 10px; }
+ .orbis-player-center button { width: 56px; height: 56px; font-size: 28px; }
+ .orbis-player-center button.main { width: 70px; height: 70px; }
+ .orbis-player-bottom { left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); padding: 10px; border-radius: 15px; }
+ .orbis-player-time { font-size: 12px; gap: 5px; }
+ .orbis-player-time input { left: 52px; right: 52px; width: calc(100% - 104px); }
+ .orbis-player-actions { justify-content: center; gap: 1px; max-height: 100px; overflow-y: auto; }
+ .orbis-player-action { min-height: 42px; padding: 6px 8px; font-size: 12px !important; }
+ .orbis-player-menu { left: 8px; right: 8px; bottom: max(154px, calc(env(safe-area-inset-bottom) + 148px)); width: auto !important; max-height: min(58vh, 550px); }
+ .orbis-player-skip { bottom: 170px; }
+ .orbis-player-next { bottom: 215px; }
+ .orbis-player-next-prompt,.orbis-player-notice { top: 80px; left: 8px; right: 8px; max-width: none; flex-wrap: wrap; }
+ .orbis-player-notice { top: 145px; }
+}
+@media (min-width: 1600px) { .orbis-player-action { min-height: 50px; font-size: 17px !important; }.orbis-player-menu { width: 420px; }.orbis-player-menu.wide { width: 620px; } }
+@media (prefers-reduced-motion: reduce) { .orbis-player * { transition-duration: 0s !important; animation: none !important; } }
+@supports not (backdrop-filter: blur(1px)) { .orbis-player-glass { background: rgba(5, 20, 31, .88); } }

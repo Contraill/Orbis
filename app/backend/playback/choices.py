@@ -7,6 +7,7 @@ import httpx
 
 from playback.hls import read_manifest
 from playback.schemas import PlaybackChoices, QualityChoice, SourceChoice
+from playback.quality import quality_class
 from playback.upstream import UpstreamRejected, new_http_client, open_upstream
 from providers.source_policy import quality_score, rank_sources
 
@@ -16,18 +17,32 @@ logger = logging.getLogger(__name__)
 
 
 def manifest_qualities(text: str) -> list[QualityChoice]:
-    heights = set()
+    classes = {}
     pending = None
     for line in text.splitlines():
         line = line.strip()
         if line.startswith("#EXT-X-STREAM-INF:"):
             match = re.search(r'(?:[:,])RESOLUTION=(\d+)x(\d+)(?:,|$)', line)
-            pending = int(match[2]) if match else None
+            pending = (int(match[1]), int(match[2])) if match else None
         elif line and not line.startswith("#"):
-            if pending is not None and 144 <= pending <= 8640:
-                heights.add(pending)
+            if pending is not None and 144 <= pending[1] <= 8640:
+                tier = quality_class(*pending)
+                if tier:
+                    classes.setdefault(tier, set()).add(pending)
             pending = None
-    return [QualityChoice(height=h, label=f"{h}p") for h in sorted(heights, reverse=True)]
+    return [QualityChoice(height=tier, label=f"{tier}p", encoded_variants=[
+        {"width": width, "height": height}
+        for width, height in sorted(classes[tier], key=lambda size: (size[0] * size[1], size[1]), reverse=True)
+    ]) for tier in sorted(classes, reverse=True)]
+
+
+def _compatible_quality(choice, caps):
+    if not caps or not caps.max_height:
+        return choice
+    if choice.encoded_variants:
+        variants = [item for item in choice.encoded_variants if item.height <= caps.max_height]
+        return choice.model_copy(update={"encoded_variants": variants}) if variants else None
+    return choice if choice.height <= caps.max_height else None
 
 
 async def discover_qualities(source) -> list[QualityChoice]:
@@ -68,20 +83,11 @@ def ranked_choices(sources, state, **kwargs):
         [s for s in sources if source_compatible(s, caps)], preferred_audio_language=state.preferred_audio_language,
         preferred_audio_kind=state.preferred_audio_kind,
         subtitles_enabled=state.subtitles_enabled,
-        preferred_subtitle_language=state.preferred_subtitle_language, **kwargs,
+        preferred_subtitle_language=state.preferred_subtitle_language,
+        preferred_quality_height=state.preferred_quality_height,
+        preferred_source_provider_id=state.preferred_source_provider_id,
+        preferred_source_id=state.preferred_source_id, **kwargs,
     )
-    def preference(source):
-        height = quality_score(source.quality)
-        preferred = state.preferred_quality_height
-        quality = (0, 0) if preferred is None or not height else (
-            0 if height <= preferred else 1, abs(preferred - height),
-        )
-        return (not (
-            state.preferred_source_id is not None
-            and source.provider_id == state.preferred_source_provider_id
-            and source.source_id == state.preferred_source_id
-        ), quality)
-    ranked.sort(key=preference)
     return ranked
 
 
@@ -102,7 +108,7 @@ async def set_session_choices(session, sources, providers, state):
                    if source.source_id == session.source.source_id and source.protocol == "http"}
         qualities = [QualityChoice(height=h, label=f"{h}p") for h in sorted(heights, reverse=True) if h]
     if caps and caps.max_height:
-        qualities = [q for q in qualities if q.height <= caps.max_height]
+        qualities = [compatible for q in qualities if (compatible := _compatible_quality(q, caps))]
     session.context.update(
         incompatible_heights=advertised - {q.height for q in qualities},
         sources=sources,
@@ -119,12 +125,12 @@ async def set_session_choices(session, sources, providers, state):
 
 
 def quality_result(choices, preferred, caps, incompatible_heights=()):
-    compatible = [q for q in choices.qualities if not caps or not caps.max_height or q.height <= caps.max_height]
+    compatible = [value for q in choices.qualities if (value := _compatible_quality(q, caps))]
     selected = selected_height(compatible, preferred)
     max_height = caps.max_height if caps else None
     if preferred is None:
         outcome = "auto"
-    elif preferred in incompatible_heights or caps and caps.max_height and preferred > caps.max_height:
+    elif preferred in incompatible_heights or caps and caps.max_height and not any(q.height == preferred for q in compatible) and preferred > caps.max_height:
         outcome = "incompatible_fallback"
     elif not compatible:
         outcome = "unverified"

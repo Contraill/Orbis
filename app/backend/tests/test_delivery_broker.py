@@ -39,6 +39,22 @@ class Chunks(httpx.AsyncByteStream):
 
 
 class DeliveryTests(HardeningTestCase):
+    def test_long_multiaudio_film_keeps_all_advertised_playlists_reachable(self):
+        entry = self.entry(DeliveryPlan(ALL_RESOURCES))
+        master = '#EXTM3U\n' + ''.join(
+            f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="{name}",URI="{name}.m3u8"\n'
+            for name in ('turkish', 'original')
+        ) + '#EXT-X-STREAM-INF:BANDWIDTH=1000000,AUDIO="audio"\nvideo.m3u8\n'
+        rewrite_manifest(entry, entry.resources['root'], entry.source.url, master)
+        children = [resource for resource in entry.resources.values() if resource.kind == 'manifest']
+        for child in children:
+            playlist = '#EXTM3U\n' + ''.join(
+                f'#EXTINF:6,\n{child.resource_id}-segment-{index}.ts\n'
+                for index in range(1760)
+            )
+            rewrite_manifest(entry, child, child.url, playlist)
+        self.assertEqual(len(entry.resources), 1 + 3 + 3 * 1760)
+
     def test_mislabeled_ts_is_streamed_unchanged_and_head_range_are_consistent(self):
         body = (b'\x47' + b'\x00' * 187) * 4
         requests = []
@@ -365,7 +381,7 @@ class PolicyAndSecurityTests(unittest.TestCase):
         self.assertEqual(policy.choose(item).mode, "direct")
 
     def test_dns_rebinding_and_non_public_literals_are_rejected(self):
-        for url in ("http://127.0.0.1/", "http://[::1]/", "http://100.64.0.10/", "http://169.254.169.254/", "https://user:pass@example.com/", "https://example.com:22/"):
+        for url in ("http://127.0.0.1/", "http://[::1]/", "http://100.64.0.1/", "http://169.254.169.254/", "https://user:pass@example.com/", "https://example.com:22/"):
             with self.subTest(url=url), self.assertRaises(UpstreamRejected):
                 origin(url)
         async def run():

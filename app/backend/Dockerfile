@@ -1,4 +1,15 @@
+FROM node:24-bookworm-slim AS webos-cli
+RUN npm install --global --no-audit --no-fund @webos-tools/cli@3.2.6
+
 FROM python:3.13-slim
+
+COPY --from=webos-cli /usr/local/bin/node /usr/local/bin/node
+COPY --from=webos-cli /usr/local/lib/node_modules/@webos-tools/cli /usr/local/lib/node_modules/@webos-tools/cli
+RUN ln -s /usr/local/lib/node_modules/@webos-tools/cli/bin/ares-setup-device.js /usr/local/bin/ares-setup-device \
+    && ln -s /usr/local/lib/node_modules/@webos-tools/cli/bin/ares-novacom.js /usr/local/bin/ares-novacom \
+    && ln -s /usr/local/lib/node_modules/@webos-tools/cli/bin/ares-device.js /usr/local/bin/ares-device \
+    && ln -s /usr/local/lib/node_modules/@webos-tools/cli/bin/ares-launch.js /usr/local/bin/ares-launch \
+    && ln -s /usr/local/lib/node_modules/@webos-tools/cli/bin/ares-install.js /usr/local/bin/ares-install
 
 WORKDIR /app
 

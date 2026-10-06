@@ -14,4 +14,4 @@ def system():
 @router.get('/watch-together/rooms')
 def room_diagnostics():
     with rooms.lock:
-        return [rooms.snapshot(room) for room in rooms.rooms.values()]
+        return [{key:value for key,value in rooms.snapshot(room).items() if key != 'join_code'} for room in rooms.rooms.values()]

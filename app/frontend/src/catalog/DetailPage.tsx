@@ -1,379 +1,139 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import {
-  Link,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
-
-import {
-  getCatalogDetails,
-  getSeasonDetails,
-  listPlaybackStates,
-} from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { getCatalogDetails, getCatalogRatings, getContinue, getSeasonDetails, listPlaybackStates, restartPlayback } from "../api";
 import AppHeader from "../app/AppHeader";
 import { useProfile } from "../app/ProfileContext";
 import { useText } from "../app/i18n";
-import { ListActions } from "./LibraryPage";
-import type {
-  CatalogDetails,
-  MediaType,
-  PlaybackState,
-  SeasonDetails,
-} from "../types";
+import DetailActions from "./DetailActions";
+import MediaCard from "./MediaCard";
+import TrailerBackdrop from "./TrailerBackdrop";
+import { useGlobalWatchTogether, type RoomContent } from "../watch/GlobalWatchTogether";
+import type { CatalogDetails, MediaType, PlaybackState, SeasonDetails, CatalogItem, ContinueEntry } from "../types";
 
-
-function parseId(value: string | undefined) {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+function action(state: PlaybackState | undefined) {
+  if (state?.completed) return "Play Again";
+  if (state && state.resume_position_seconds > 0) return "Resume";
+  return "Play";
+}
+function episodePath(profileId: number, id: number, season: number, episode: number) {
+  return `/watch/${profileId}/tv/${id}/season/${season}/episode/${episode}`;
 }
 
-
-function parseSelectableSeason(value: string | null) {
-  if (value === null) return 1;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
-}
-
-
-function stateKey(
-  tmdbId: number,
-  season: number | null,
-  episode: number | null,
-) {
-  return season === null || episode === null
-    ? `movie:${tmdbId}`
-    : `tv:${tmdbId}:s${season}:e${episode}`;
-}
-
-
-function actionLabel(state: PlaybackState | undefined) {
-  if (state && !state.completed && state.resume_position_seconds > 0) {
-    return "Resume";
-  }
-  return state?.completed ? "Play again" : "Play";
-}
-
-
-function progressLabel(state: PlaybackState | undefined) {
-  if (!state || state.resume_position_seconds <= 0) return null;
-  const minutes = Math.floor(state.resume_position_seconds / 60);
-  return `${minutes} min watched`;
-}
-
-
-export default function DetailPage({
-  mediaType,
-}: {
-  mediaType: MediaType;
-}) {
+export default function DetailPage({ mediaType }: { mediaType: MediaType }) {
   const { tmdbId } = useParams();
-  const id = parseId(tmdbId);
+  const id = Number(tmdbId);
   const { profile } = useProfile();
   const t = useText();
-  const profileId = profile?.id ?? null;
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requestedSeason = parseSelectableSeason(
-    searchParams.get("season"),
-  );
-  const [details, setDetails] =
-    useState<CatalogDetails | null>(null);
+  const navigate = useNavigate();
+  const watch = useGlobalWatchTogether();
+  const [params, setParams] = useSearchParams();
+  const [details, setDetails] = useState<CatalogDetails | null>(null);
   const [states, setStates] = useState<PlaybackState[]>([]);
+  const [continueEntry, setContinueEntry] = useState<ContinueEntry | null>(null);
   const [season, setSeason] = useState<SeasonDetails | null>(null);
+  const [related, setRelated] = useState<CatalogItem[]>([]);
+  const [imdb, setImdb] = useState<number | null>(null);
+  const [trailerPlaying, setTrailerPlaying] = useState(false);
+  const [detailsVisible, setDetailsVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [seasonLoading, setSeasonLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [seasonError, setSeasonError] =
-    useState<string | null>(null);
-  const currentDetails = details?.tmdb_id === id &&
-    details.media_type === mediaType
-    ? details
-    : null;
-  const seasonCount = currentDetails?.number_of_seasons &&
-    currentDetails.number_of_seasons > 0
-    ? currentDetails.number_of_seasons
-    : 1;
-  const seasons = Array.from(
-    { length: seasonCount },
-    (_, index) => index + 1,
-  );
-  const seasonNumber = seasons.includes(requestedSeason)
-    ? requestedSeason
-    : seasons[0];
-  const activeSeason = season?.series_tmdb_id === id &&
-    season.season_number === seasonNumber
-    ? season
-    : null;
+  const [error, setError] = useState("");
+  const [seasonError, setSeasonError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const seasonNumbers = useMemo(() => {
+    if (!details) return [];
+    const available = details.seasons.filter(s => s.season_number > 0 && s.episode_count > 0).map(s => s.season_number);
+    return available.length ? available : Array.from({ length: Math.min(details.number_of_seasons ?? 1, 30) }, (_, index) => index + 1);
+  }, [details]);
+  const seasonNumber = seasonNumbers.includes(Number(params.get("season"))) ? Number(params.get("season")) : seasonNumbers[0] ?? 1;
 
   useEffect(() => {
-    if (!id || !profileId) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setDetails(null);
-    setStates([]);
-    setSeason(null);
-    setSeasonError(null);
-    void Promise.all([
-      getCatalogDetails(mediaType, id),
-      listPlaybackStates(profileId),
-    ]).then(([nextDetails, nextStates]) => {
-      if (!cancelled) {
-        setDetails(nextDetails);
-        setStates(nextStates);
-      }
-    }).catch((reason: unknown) => {
-      if (!cancelled) {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "Content details could not be loaded",
-        );
-      }
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [id, mediaType, profileId]);
-
-  useEffect(() => {
-    if (
-      mediaType !== "tv" ||
-      !id ||
-      !profileId ||
-      currentDetails?.media_type !== "tv"
-    ) return;
-    let cancelled = false;
-    setSeasonLoading(true);
-    setSeasonError(null);
-    setSeason(null);
-    void getSeasonDetails(id, seasonNumber)
-      .then((nextSeason) => {
-        if (!cancelled) setSeason(nextSeason);
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) {
-          setSeason(null);
-          setSeasonError(
-            reason instanceof Error
-              ? reason.message
-              : "Season could not be loaded",
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSeasonLoading(false);
+    if (!profile || !Number.isInteger(id) || id < 1) return;
+    let active = true;
+    setLoading(true); setError(""); setDetails(null); setSeason(null); setRelated([]); setImdb(null); setTrailerPlaying(false); setDetailsVisible(false);
+    Promise.all([getCatalogDetails(mediaType, id), listPlaybackStates(profile.id), getContinue(profile.id, mediaType)]).then(([data, playback, continued]) => {
+      if (!active) return;
+      setDetails(data); setStates(playback); setContinueEntry(continued.find(item => item.tmdb_id === id && item.media_type === mediaType) ?? null);
+      void getCatalogRatings(mediaType, id).then(result => { if (active) setImdb(result.ratings.find(r => r.source === "imdb")?.average ?? null); }).catch(() => {});
+      const unique = [...new Map(data.related.filter(r => r.tmdb_id !== id && (r.media_type === "movie" || r.media_type === "tv")).map(r => [`${r.media_type}:${r.tmdb_id}`, r])).values()].slice(0, 8);
+      void Promise.allSettled(unique.map(ref => getCatalogDetails(ref.media_type, ref.tmdb_id))).then(results => {
+        if (active) setRelated(results.filter((r): r is PromiseFulfilledResult<CatalogDetails> => r.status === "fulfilled").map(r => r.value));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDetails, id, mediaType, profileId, seasonNumber]);
+    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : t("Request failed")); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [id, mediaType, profile?.id, profile?.locale, retry]);
 
-  const statesByKey = useMemo(() => new Map(
-    states.map((state) => [
-      stateKey(
-        state.tmdb_id,
-        state.season_number,
-        state.episode_number,
-      ),
-      state,
-    ]),
-  ), [states]);
+  useEffect(() => {
+    if (!profile || mediaType !== "tv" || !details) return;
+    let active = true;
+    setSeason(null); setSeasonError(""); setSeasonLoading(true);
+    getSeasonDetails(id, seasonNumber).then(data => { if (active) setSeason(data); }).catch(reason => { if (active) setSeasonError(reason instanceof Error ? reason.message : t("Request failed")); }).finally(() => { if (active) setSeasonLoading(false); });
+    return () => { active = false; };
+  }, [profile?.id, profile?.locale, details, seasonNumber, mediaType, id]);
 
-  if (!profile) {
-    return (
-      <main className="catalog-status full-page-status">
-        <div>
-          <p>Select a profile before opening content.</p>
-          <Link className="button primary link-button" to="/">
-            Choose profile
-          </Link>
+  if (!profile) return <div className="product-shell ambient"><main className="product-state"><Link to="/">{t("Select a profile")}</Link></main></div>;
+  if (loading) return <div className="product-shell ambient"><AppHeader /><main className="product-loading" role="status">{t("Loading…")}</main></div>;
+  if (!details || error) return <div className="product-shell ambient"><AppHeader /><main className="product-state" role="alert"><p>{error || t("Unavailable")}</p><button className="orbis-button" onClick={() => setRetry(current => current + 1)}>{t("Try again")}</button></main></div>;
+
+  const movieState = states.find(s => s.media_type === "movie" && s.tmdb_id === id);
+  const seriesStates = states.filter(s => s.media_type === "tv" && s.tmdb_id === id && s.season_number != null && s.episode_number != null);
+  const currentEpisode = seriesStates.filter(s => !s.completed).sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+  const firstSeason = seasonNumbers[0] ?? 1;
+  const firstEpisode = season?.episodes[0]?.episode_number ?? 1;
+  const primaryEpisode = continueEntry?.media_type === "tv" && continueEntry.season_number != null && continueEntry.episode_number != null
+    ? { season: continueEntry.season_number, episode: continueEntry.episode_number, state: seriesStates.find(s => s.season_number === continueEntry.season_number && s.episode_number === continueEntry.episode_number) }
+    : currentEpisode ? { season: currentEpisode.season_number!, episode: currentEpisode.episode_number!, state: currentEpisode } : { season: firstSeason, episode: firstEpisode, state: seriesStates.find(s => s.season_number === firstSeason && s.episode_number === firstEpisode) };
+  const primaryPath = mediaType === "movie" ? `/watch/${profile.id}/movie/${id}` : episodePath(profile.id, id, primaryEpisode.season, primaryEpisode.episode);
+  const primaryState = mediaType === "movie" ? movieState : primaryEpisode.state;
+  const roles = (names: string[]) => details.credits.filter(c => names.includes(c.role)).slice(0, names.includes("Actor") ? 12 : 5);
+  const credits = [
+    ["Directed by", roles(["Director"])], ["Created by", roles(["Creator"])],
+    ["Produced by", roles(["Producer", "Executive Producer"])], ["Cast", roles(["Actor"])],
+  ] as const;
+  async function begin(path: string, content: RoomContent, title: string, restart = false) {
+    setActionError("");
+    try {
+      if (restart) await restartPlayback(profile!.id, content);
+      const resume = !restart && primaryState?.tmdb_id === content.tmdb_id && primaryState.season_number === content.season_number && primaryState.episode_number === content.episode_number ? primaryState.resume_position_seconds : 0;
+      await watch.start(content, path, { title, returnTo: window.location.pathname + window.location.search }, resume ?? 0);
+    } catch (reason) { setActionError(reason instanceof Error ? reason.message : t("Request failed")); }
+  }
+  const primaryContent: RoomContent = { media_type: mediaType, tmdb_id: id, season_number: mediaType === "tv" ? primaryEpisode.season : null, episode_number: mediaType === "tv" ? primaryEpisode.episode : null };
+  return <div className="product-shell detail-shell"><AppHeader /><main>
+    <section className={`cinema-hero ${trailerPlaying && !detailsVisible ? "trailer-active" : ""}`} style={details.backdrop_url ? { backgroundImage: `url("${details.backdrop_url}")` } : undefined}>
+      <TrailerBackdrop videos={details.videos} initiallyMuted={profile.trailer_muted} onPlayingChange={setTrailerPlaying} />
+      <div className="cinema-shade" /><div className="cinema-copy" inert={trailerPlaying && !detailsVisible}>
+        <button className="cinema-back" onClick={() => navigate(-1)}>← {t("Back")}</button>
+        <span className="orbis-kicker">ORBIS / {t(mediaType === "movie" ? "Movies" : "Series")}</span>
+        <h1>{details.title}</h1>
+        <div className="cinema-meta"><span>{details.release_date?.slice(0, 4)}</span>{details.runtime_minutes ? <span>{details.runtime_minutes} {t("min")}</span> : null}{imdb != null ? <span className="imdb-score">IMDb {imdb.toFixed(1)}</span> : details.vote_average != null ? <span>★ {details.vote_average.toFixed(1)}</span> : null}{details.genres.slice(0, 3).map(genre => <span key={genre}>{genre}</span>)}</div>
+        <p className="cinema-overview">{details.overview || t("No overview is available.")}</p>
+        <div className="cinema-actions"><button className="orbis-button accent" onClick={() => void begin(primaryPath, primaryContent, details.title)}>▶ {t(continueEntry?.action === "next_episode" && mediaType === "tv" ? "Next episode" : action(primaryState))}</button>
+          {primaryState && !primaryState.completed && primaryState.resume_position_seconds > 0 ? <button className="orbis-button ghost" onClick={() => void begin(primaryPath, primaryContent, details.title, true)}>{t("Start Over")}</button> : null}
+          <DetailActions item={{ media_type: mediaType, tmdb_id: id }} />
         </div>
-      </main>
-    );
-  }
-
-  if (loading) {
-    return <main className="catalog-status full-page-status">Loading…</main>;
-  }
-
-  if (!id || !details || error) {
-    return (
-      <main className="catalog-status full-page-status">
-        <div>
-          <p className="banner error-banner">
-            {error ?? "Content not found"}
-          </p>
-          <Link className="back-link" to="/">← Browse</Link>
-        </div>
-      </main>
-    );
-  }
-
-  const movieState = statesByKey.get(stateKey(id, null, null));
-  const movieWatchPath = `/watch/${profile.id}/movie/${id}`;
-  return (
-    <div className="catalog-shell">
-      <AppHeader />
-      <main className="detail-page">
-        <section
-          className="detail-hero"
-          style={details.backdrop_url ? {
-            backgroundImage:
-              `linear-gradient(90deg, #09090b 12%, ` +
-              `rgba(9, 9, 11, .78) 52%, rgba(9, 9, 11, .2)), ` +
-              `url(${details.backdrop_url})`,
-          } : undefined}
-        >
-          <div className="detail-copy">
-            <Link className="back-link" to="/">← {t("Browse")}</Link>
-            <p className="section-kicker">
-              {mediaType === "movie" ? "MOVIE" : "TV SERIES"}
-            </p>
-            <h1>{details.title}</h1>
-            <div className="detail-meta">
-              <span>{details.release_date?.slice(0, 4) ?? "—"}</span>
-              {details.vote_average !== null ? (
-                <span>★ {details.vote_average.toFixed(1)}</span>
-              ) : null}
-              {details.runtime_minutes ? (
-                <span>{details.runtime_minutes} min</span>
-              ) : null}
-              {details.genres.slice(0, 3).map((genre) => (
-                <span key={genre}>{genre}</span>
-              ))}
-            </div>
-            <p className="detail-overview">
-              {details.overview || "No overview is available."}
-            </p>
-            {mediaType === "movie" ? (
-              <div className="detail-actions">
-                <Link
-                  className="button primary link-button play-button"
-                  to={movieWatchPath}
-                  state={{
-                    title: details.title,
-                    returnTo: `/movie/${id}`,
-                  }}
-                >
-                  ▶ {t(actionLabel(movieState))}
-                </Link>
-                {progressLabel(movieState) ? (
-                  <span>{progressLabel(movieState)}</span>
-                ) : null}
-              </div>
-            ) : null}
-            <ListActions item={{ media_type: mediaType, tmdb_id: id }} />
-          </div>
-        </section>
-
-        {mediaType === "tv" ? (
-          <section className="episodes-section">
-            <div className="catalog-section-heading season-heading">
-              <div>
-                <p className="section-kicker">{t("Episodes")}</p>
-                <h2>
-                  {activeSeason?.name ?? `Season ${seasonNumber}`}
-                </h2>
-              </div>
-              <label className="season-select">
-                <span>{t("Season")}</span>
-                <select
-                  value={seasonNumber}
-                  onChange={(event) => {
-                    setSearchParams({ season: event.target.value });
-                  }}
-                >
-                  {seasons.map((number) => (
-                    <option key={number} value={number}>
-                      {t("Season")} {number}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {seasonLoading ? (
-              <div className="catalog-status">Loading episodes…</div>
-            ) : null}
-            {seasonError ? (
-              <div className="banner error-banner">{seasonError}</div>
-            ) : null}
-            {!seasonLoading && !seasonError &&
-            activeSeason?.episodes.length === 0 ? (
-              <div className="empty-state">
-                No episodes are available for this season.
-              </div>
-            ) : null}
-
-            <div className="episode-list">
-              {activeSeason?.episodes.map((episode) => {
-                const episodeState = statesByKey.get(
-                  stateKey(id, seasonNumber, episode.episode_number),
-                );
-                const watchPath = (
-                  `/watch/${profile.id}/tv/${id}` +
-                  `/season/${seasonNumber}` +
-                  `/episode/${episode.episode_number}`
-                );
-                return (
-                  <article
-                    className="episode-card"
-                    key={episode.episode_number}
-                  >
-                    <div className="episode-art">
-                      {episode.still_url ? (
-                        <img
-                          src={episode.still_url}
-                          alt=""
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span>{episode.episode_number}</span>
-                      )}
-                    </div>
-                    <div className="episode-copy">
-                      <p>Episode {episode.episode_number}</p>
-                      <h3>{episode.name || "Untitled episode"}</h3>
-                      <small>
-                        {episode.runtime_minutes
-                          ? `${episode.runtime_minutes} min`
-                          : episode.air_date ?? ""}
-                        {progressLabel(episodeState)
-                          ? ` · ${progressLabel(episodeState)}`
-                          : ""}
-                      </small>
-                      <p>{episode.overview || "No overview available."}</p>
-                    </div>
-                    <Link
-                      className="button primary link-button"
-                      to={watchPath}
-                      state={{
-                        title: (
-                          `${details.title} · ` +
-                          `S${seasonNumber} E${episode.episode_number}`
-                        ),
-                        returnTo: `/tv/${id}?season=${seasonNumber}`,
-                      }}
-                    >
-                      {t(actionLabel(episodeState))}
-                    </Link>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
-        {details ? <details className="catalog-section"><summary>Catalog metadata (verification)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(details, null, 2)}</pre></details> : null}
-      </main>
+        {actionError ? <p role="alert" className="form-error">{actionError}</p> : null}
+      </div>
+      {trailerPlaying ? <button className="trailer-details-toggle" type="button" aria-pressed={detailsVisible} onClick={() => setDetailsVisible(value => !value)}>{t(detailsVisible ? "Hide details" : "Show details")}</button> : null}
+    </section>
+    <div className="detail-content">
+      {details.original_title && details.original_title !== details.title ? <p className="original-title"><span>{t("Original title")}</span> {details.original_title}</p> : null}
+      <div className="detail-facts">{credits.map(([label, people]) => people.length ? <div key={label}><h2>{t(label)}</h2><p>{people.map((person, index) => <span key={`${person.tmdb_id}:${index}`}><Link to={`/search?q=${encodeURIComponent(person.name)}`}>{person.name}</Link>{person.character && label === "Cast" ? <small> · {person.character}</small> : null}{index < people.length - 1 ? ", " : ""}</span>)}</p></div> : null)}
+        {details.production_companies.length ? <div><h2>{t("Production")}</h2><p>{details.production_companies.map((company, index) => <span key={company.tmdb_id}><Link to={`/search?q=${encodeURIComponent(company.name)}`}>{company.name}</Link>{index < details.production_companies.length - 1 ? ", " : ""}</span>)}</p></div> : null}
+      </div>
+      {mediaType === "tv" ? <section className="orbis-episodes"><div className="orbis-section-heading"><div><span className="orbis-kicker">ORBIS / {t("Series")}</span><h2>{t("Episodes")}</h2></div><label>{t("Season")}<select value={seasonNumber} onChange={event => setParams({ season: event.target.value })}>{seasonNumbers.length ? seasonNumbers.map(n => <option key={n} value={n}>{details.seasons.find(s => s.season_number === n)?.name || `${t("Season")} ${n}`}</option>) : <option value="1">{t("Season")} 1</option>}</select></label></div>
+        {seasonLoading ? <p role="status">{t("Loading…")}</p> : null}{seasonError ? <p role="alert">{seasonError}</p> : null}
+        {!seasonLoading && !seasonError && !season?.episodes.length ? <p>{t("No episodes are available for this season.")}</p> : null}
+        <div className="orbis-episode-list">{season?.episodes.map(episode => {
+          const state = seriesStates.find(s => s.season_number === seasonNumber && s.episode_number === episode.episode_number);
+          const path = episodePath(profile.id, id, seasonNumber, episode.episode_number);
+          const content: RoomContent = { media_type: "tv", tmdb_id: id, season_number: seasonNumber, episode_number: episode.episode_number };
+          const title = `${details.title} · S${seasonNumber} E${episode.episode_number}`;
+          return <article className="orbis-episode" key={episode.episode_number}><button className="episode-still" onClick={() => void begin(path, content, title)}>{episode.still_url ? <img src={episode.still_url} alt="" loading="lazy" /> : <span>{episode.episode_number}</span>}</button><div><span className="orbis-kicker">{t("Episode")} {episode.episode_number} {episode.air_date ? `· ${episode.air_date}` : ""}</span><h3>{episode.name || t("Untitled episode")}</h3><p>{episode.overview}</p>{state && state.resume_position_seconds > 0 ? <small>{Math.floor(state.resume_position_seconds / 60)} {t("min watched")}</small> : null}</div><button className="orbis-button ghost" onClick={() => void begin(path, content, title)}>{t(action(state))} ↗</button></article>;
+        })}</div>
+      </section> : null}
+      {related.length ? <section className="orbis-shelf related-shelf"><div className="orbis-shelf-heading"><h2>{t("More like this")}</h2></div><div className="orbis-shelf-track">{related.map(item => <MediaCard key={`${item.media_type}:${item.tmdb_id}`} item={item} />)}</div></section> : null}
     </div>
-  );
+  </main></div>;
 }

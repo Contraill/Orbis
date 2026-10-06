@@ -1,5 +1,6 @@
 import type {
   CatalogDetails,
+  AdminResolveResult,
   CatalogPage,
   LiveProviderState,
   PlaybackFailoverRequest,
@@ -162,12 +163,17 @@ export const loginOwner = (password: string) => request<{ owner_id: number; toke
 export const ownerSession = () => request<{ owner_id: number }>("/api/setup/session");
 export const logoutOwner = () => request("/api/setup/logout", { method: "POST" });
 export const editProfile = (id: number, values: Partial<Omit<Profile, "id" | "is_owner">>) => request<Profile>(`/api/profiles/${id}`, { method: "PATCH", body: JSON.stringify(values) });
+export const deleteOwnProfile = (id: number, confirmName: string) => request<void>(`/api/profiles/${id}/self-delete`, {
+  method: "POST",
+  headers: { "X-Profile-Id": String(id) },
+  body: JSON.stringify({ confirm_name: confirmName }),
+});
 const library = (id: number) => `/api/library/profiles/${id}`;
 export const getContinue = (id: number, kind = "all") => request<ContinueEntry[]>(`${library(id)}/continue?kind=${kind}`);
-export const hideContinue = (id: number, item: ContentSelection) => request(`${library(id)}/continue/hide`, { method: "POST", body: JSON.stringify(item) });
+export const hideContinue = (id: number, item: ContentSelection) => request(`${library(id)}/continue/hide`, { method: "POST", body: JSON.stringify({ media_type: item.media_type, tmdb_id: item.tmdb_id }) });
 export const getMyList = (id: number, kind = "all") => request<LibraryItem[]>(`${library(id)}/my-list?kind=${kind}`);
 export const getHistory = (id: number) => request<HistoryEntry[]>(`${library(id)}/history`);
-export const setListIntent = (id: number, item: ContentSelection, enabled: boolean, negative = false) => request(`${library(id)}/${negative ? "not-interested" : "my-list"}`, { method: "PUT", body: JSON.stringify({ ...item, enabled }) });
+export const setListIntent = (id: number, item: ContentSelection, enabled: boolean, negative = false) => request(`${library(id)}/${negative ? "not-interested" : "my-list"}`, { method: "PUT", body: JSON.stringify({ media_type: item.media_type, tmdb_id: item.tmdb_id, enabled }) });
 export const restartPlayback = (id: number, item: ContentSelection & { season_number?: number | null; episode_number?: number | null }) => request(`${library(id)}/restart`, { method: "POST", body: JSON.stringify(item) });
 
 
@@ -228,7 +234,7 @@ export function resolveMovie(
     ? `${PROVIDERS}/${providerId}/resolve-test/movie/${tmdbId}`
     : `${PROVIDERS}/resolve-test/movie/${tmdbId}`;
 
-  return request<PlaybackResolutionSummary>(url, {
+  return request<AdminResolveResult>(url, {
     method: "POST",
   });
 }
@@ -247,7 +253,7 @@ export function resolveEpisode(
     ? `${PROVIDERS}/${providerId}/resolve-test/${suffix}`
     : `${PROVIDERS}/resolve-test/${suffix}`;
 
-  return request<PlaybackResolutionSummary>(url, {
+  return request<AdminResolveResult>(url, {
     method: "POST",
   });
 }
@@ -362,6 +368,9 @@ export function getCatalogDetails(
   return request<CatalogDetails>(
     `/api/catalog/${mediaType}/${tmdbId}`,
   );
+}
+export function getCatalogRatings(mediaType: "movie" | "tv", tmdbId: number) {
+  return request<{ ratings: { source: string; average: number; votes: number }[] }>(`/api/catalog/${mediaType}/${tmdbId}/ratings`);
 }
 
 
@@ -506,15 +515,21 @@ export type SearchResult = {
   title: string;
   roles: string[];
   display_locale?: string;
+  poster_url?: string | null; backdrop_url?: string | null; overview?: string;
+  release_date?: string | null; vote_average?: number | null;
 };
 export type SearchPage = { results: SearchResult[]; next_cursor: string | null; warning?: string | null };
-export function unifiedSearch(query: string, kind: string, online: boolean, cursor?: string) {
+export type GenreSearchResult = { genre_id: number; title: string; scope: "all" | "movie" | "tv" };
+export function searchGenres(query: string, kind: "all" | "movie" | "tv", signal?: AbortSignal) {
+  return request<{ results: GenreSearchResult[] }>(`/api/catalog/genres?${new URLSearchParams({ query, kind })}`, { signal });
+}
+export function unifiedSearch(query: string, kind: string, online: boolean, cursor?: string, signal?: AbortSignal) {
   const params = new URLSearchParams({ query, kind, online: String(online) });
   if (cursor) params.set("cursor", cursor);
-  return request<SearchPage>(`/api/catalog/unified-search?${params}`);
+  return request<SearchPage>(`/api/catalog/unified-search?${params}`, { signal });
 }
-export function catalogCredits(kind: "person" | "company", id: number, cursor?: string) {
-  const params = new URLSearchParams({ enrich: String(kind === "person") });
+export function catalogCredits(kind: "person" | "company", id: number, cursor?: string, enrich = false) {
+  const params = new URLSearchParams({ enrich: String(enrich && kind === "person") });
   if (cursor) params.set("cursor", cursor);
   return request<SearchPage>(`/api/catalog/${kind}/${id}/credits?${params}`);
 }
@@ -522,17 +537,25 @@ export function catalogCredits(kind: "person" | "company", id: number, cursor?: 
 export type FeedSurface = "home" | "movies" | "series";
 export type FeedItem = import("./types").CatalogItem & {
   key: string;
+  new_season?: number | null;
   resume?: { season_number: number | null; episode_number: number | null; position_seconds: number; action: string } | null;
 };
-export type FeedShelf = { id: string; title: string; kind: string; personalized: boolean; items: FeedItem[] };
+export type FeedShelf = { id: string; title: string; kind: string; personalized: boolean; items: FeedItem[]; genre_id?: number | null; genre_scope?: "all" | "movie" | "tv" | null };
 export type FeedPage = { snapshot_id: string; surface: FeedSurface; personalized: boolean; shelves: FeedShelf[]; next_cursor: string | null; warnings: string[] };
 export function getFeed(profileId: number, surface: FeedSurface, cursor?: string) {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ batch_size: "5" });
   if (cursor) params.set("cursor", cursor);
   return request<FeedPage>(`/api/feeds/profiles/${profileId}/${surface}?${params}`);
 }
 export function getFeedDiagnostics(profileId: number, snapshot: string) {
   return request<unknown>(`/api/feeds/profiles/${profileId}/diagnostics/${snapshot}`);
+}
+
+export type GenrePage = { genre_id: number; title: string; scope: "all" | "movie" | "tv"; results: FeedItem[]; next_cursor: string | null };
+export function getGenreItems(genreId: number, scope: "all" | "movie" | "tv", cursor?: string) {
+  const params = new URLSearchParams({ kind: scope });
+  if (cursor) params.set("cursor", cursor);
+  return request<GenrePage>(`/api/catalog/genres/${genreId}/items?${params}`);
 }
 
 export type ClientCapabilities = {

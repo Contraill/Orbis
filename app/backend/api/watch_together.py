@@ -24,7 +24,7 @@ MAX_MESSAGE_BYTES = 4096
 
 class CreateRoom(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    content: Content
+    content: Content | None = None
     position: float = Field(default=0,ge=0,le=604800,allow_inf_nan=False)
 
 
@@ -38,8 +38,33 @@ class ResolveRoom(BaseModel):
     content_revision: int = Field(ge=1)
 
 
+class TransitionRoom(BaseModel):
+    model_config = ConfigDict(extra='forbid',strict=True)
+    revision: int = Field(ge=1)
+    content: Content
+    position: float = Field(default=0,ge=0,le=604800,allow_inf_nan=False)
+
+
 # One bounded outgoing queue per connection. Only the sender writes the socket.
 connections = {}
+failed_joins = {}
+
+
+def join_budget(key, limit):
+    now = monotonic()
+    # Small bounded process-local throttle; no room existence is disclosed.
+    if len(failed_joins) > 1024:
+        for old in list(failed_joins):
+            if now - failed_joins[old][0] > 60:
+                failed_joins.pop(old,None)
+        if len(failed_joins) > 1024:
+            failed_joins.pop(next(iter(failed_joins)),None)
+    start, count = failed_joins.get(key,(now,0))
+    if now-start > 60:
+        start, count = now, 0
+    if count >= limit:
+        raise RoomError('join_rate_limited',429)
+    return start, count
 
 
 def enqueue(queue, message):
@@ -133,6 +158,58 @@ async def join(room_id: str, row=Depends(client),db: Session=Depends(get_db)):
             raise fail(exc)
 
 
+@router.post('/join')
+async def join_code(payload: dict, request: Request, row=Depends(client), db: Session=Depends(get_db)):
+    code = payload.get('join_code')
+    source = request.client.host if request.client else ''
+    keys = [(source,row.id), (source,'*')]
+    with rooms.lock:
+        try:
+            sweep()
+            for key,limit in zip(keys,(5,30)):
+                join_budget(key,limit)
+            room = rooms.by_code(code if isinstance(code,str) else '')
+            p = rooms.join(room,row,db.get(Profile,row.profile_id).name)
+            failed_joins.pop(keys[0],None)
+            broadcast(room)
+            return {**rooms.snapshot(room),'participant_id':p.id}
+        except RoomError as exc:
+            if exc.code == 'invalid_join_code':
+                for key in keys:
+                    start,count = failed_joins.get(key,(monotonic(),0))
+                    if monotonic()-start > 60:
+                        start,count = monotonic(),0
+                    failed_joins[key] = (start,count+1)
+            raise fail(exc)
+
+
+@router.post('/rooms/{room_id}/exit')
+async def exit_room(room_id: str,row=Depends(client)):
+    with rooms.lock:
+        try:
+            room = rooms.get(room_id)
+            p = rooms.member(room,row.id)
+            rooms.leave(room,p)
+            broadcast(room)
+            return {'status':'closed' if room.status == 'closed' else 'left'}
+        except RoomError as exc:
+            raise fail(exc)
+
+
+@router.post('/rooms/{room_id}/transition')
+async def transition(room_id: str,payload: TransitionRoom,row=Depends(client)):
+    with rooms.lock:
+        try:
+            sweep()
+            room = rooms.get(room_id)
+            p = rooms.member(room,row.id)
+            result = rooms.apply(room,p,Event(type='content',revision=payload.revision,content=payload.content,position=payload.position))
+            broadcast(room)
+            return result
+        except RoomError as exc:
+            raise fail(exc)
+
+
 @router.get('/rooms/{room_id}')
 async def current(room_id: str,row=Depends(client)):
     with rooms.lock:
@@ -152,6 +229,8 @@ async def resolve(room_id: str,payload: ResolveRoom,row=Depends(client),db: Sess
             sweep()
             room = rooms.get(room_id)
             p = rooms.member(room,row.id)
+            if room.content is None:
+                raise RoomError('room_waiting_for_content')
             if room.content_revision != payload.content_revision:
                 raise RoomError('stale_content')
             content, previous = room.content, p.previous_content
@@ -188,7 +267,7 @@ async def resolve(room_id: str,payload: ResolveRoom,row=Depends(client),db: Sess
 
 
 def next_episode(room,profile_id,db):
-    if room.content.media_type != 'tv':
+    if room.content is None or room.content.media_type != 'tv':
         raise RoomError('not_a_series')
     target = lifecycle(db,profile_id,identity(room.content))['next']
     if not target or not target['aired']:
@@ -270,12 +349,12 @@ async def socket(ws: WebSocket,room_id: str):
                 try:
                     event = Event.model_validate_json(raw)
                     with rooms.lock:
-                        if event.type == 'next_episode' and p.id != room.host:
-                            raise RoomError('host_only',403)
                         target = next_episode(room,p.profile_id,db) if event.type == 'next_episode' else None
                         result = rooms.apply(room,p,event,target)
                         if event.type == 'position':
                             enqueue(queue,result)
+                        elif event.type == 'heartbeat':
+                            pass
                         else:
                             broadcast(room)
                         if (utc_now()-row.last_seen).total_seconds() >= 20:

@@ -186,6 +186,24 @@ def _subtitle_preference_score(
     return 0
 
 
+def source_preference_fit(
+    source: PlaybackSource,
+    *,
+    preferred_audio_language: str | None = None,
+    preferred_audio_kind: AudioKind | None = None,
+    subtitles_enabled: bool = False,
+    preferred_subtitle_language: str | None = None,
+) -> tuple[tuple[int, int, int], bool]:
+    """Compare semantic fit across providers without making preferences mandatory."""
+    wants_audio = bool(preferred_audio_language or preferred_audio_kind)
+    wants_subtitle = bool(subtitles_enabled and preferred_subtitle_language)
+    audio = _audio_preference_score(source.audio_tracks, preferred_audio_language, preferred_audio_kind, None) if wants_audio else 0
+    subtitles = _subtitle_preference_score(source.subtitle_tracks, preferred_subtitle_language, None) if wants_subtitle else 0
+    clean = not any(track.kind == "burned_in" for track in source.subtitle_tracks) if not subtitles_enabled else True
+    required_audio = 3 if preferred_audio_language and preferred_audio_kind else 2 if preferred_audio_language else 1
+    return (audio, subtitles, int(clean)), (not wants_audio or audio >= required_audio) and (not wants_subtitle or subtitles > 0) and clean
+
+
 def rank_sources(
     sources: list[PlaybackSource],
     *,
@@ -195,6 +213,9 @@ def rank_sources(
     subtitles_enabled: bool = False,
     preferred_subtitle_language: str | None = None,
     preferred_subtitle_track_id: str | None = None,
+    preferred_quality_height: int | None = None,
+    preferred_source_provider_id: str | None = None,
+    preferred_source_id: str | None = None,
     require_healthy: bool = False,
     now: datetime | None = None,
 ) -> list[PlaybackSource]:
@@ -230,6 +251,14 @@ def rank_sources(
                 if subtitles_enabled
                 else 0
             ),
+            # When captions are off, a source with unavoidable burned-in text
+            # is less suitable than an otherwise equivalent clean source.
+            bool(not subtitles_enabled and any(track.kind == "burned_in" for track in source.subtitle_tracks)),
+            # Legacy explicit source choices are only tie-breakers after the
+            # active profile's health and language requirements.
+            not (preferred_source_id is not None and source.provider_id == preferred_source_provider_id and source.source_id == preferred_source_id),
+            (0 if preferred_quality_height is None or not quality_score(source.quality) else
+             abs(preferred_quality_height - quality_score(source.quality))),
             -quality_score(source.quality),
             -protocol_scores[source.protocol],
             bool(source.headers or source.delivery.resource_headers or source.delivery.egress == "resolution"),

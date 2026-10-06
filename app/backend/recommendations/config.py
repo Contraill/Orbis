@@ -35,7 +35,9 @@ class Policy:
     candidate_limit: int = 400
     feature_query_limit: int = 40
     shelf_items: int = 6
-    max_shelves: int = 14
+    # Safety bound for curated opening rows. Semantic continuation is generated
+    # from a bounded candidate snapshot and is not capped by this value.
+    max_shelves: int = 96
     feed_minutes: int = 20
     upstream_hours: int = 12
     upstream_budget: int = 10

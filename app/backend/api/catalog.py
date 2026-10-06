@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from db.session import get_db
 from metadata.localization import preferred_locale, store_response
 
-from metadata.schemas import CatalogDetails, CatalogPage, SeasonDetails, CursorPage, UnifiedSearchPage
+from metadata.schemas import CatalogDetails, CatalogPage, SeasonDetails, CursorPage, UnifiedSearchPage, GenreSearchPage
 from metadata.tmdb import TMDBClient, TMDBError
 from metadata.catalog import cached, ratings
 from metadata import search as unified
@@ -129,6 +129,42 @@ def catalog_items(
     if my_list and profile_id is None:
         raise HTTPException(422, "My List requires a profile")
     return unified.surface(db, locale, kind, limit, cursor, profile_id, my_list)
+
+
+@router.get("/genres", response_model=GenreSearchPage)
+def search_genres(
+    query: str = Query(min_length=2, max_length=80),
+    kind: Literal["all", "movie", "tv"] = "all",
+    locale: str = Depends(preferred_locale), db: Session = Depends(get_db),
+):
+    from sqlalchemy import select
+    from db.models.catalog import CatalogEntity, CatalogFeature
+    from metadata.genres import genre_ids, search
+    results = []
+    for genre in search(query, kind, locale):
+        terms = [f"genre:{value}" for value in genre_ids(genre["genre_id"], kind)]
+        statement = select(CatalogFeature.media_key).join(CatalogEntity, CatalogEntity.key == CatalogFeature.media_key)
+        statement = statement.where(CatalogFeature.term.in_(terms))
+        if kind != "all":
+            statement = statement.where(CatalogEntity.kind == kind)
+        if db.scalar(statement.limit(1)):
+            results.append(genre)
+    return {"results": results}
+
+
+@router.get("/genres/{genre_id}/items")
+def genre_items(
+    genre_id: int = Path(gt=0), kind: Literal["all", "movie", "tv"] = "all",
+    limit: int = Query(default=24, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=64),
+    locale: str = Depends(preferred_locale), db: Session = Depends(get_db),
+):
+    from metadata.genres import label
+    title = label(genre_id, kind, locale)
+    if title is None:
+        raise HTTPException(404, "Unknown genre")
+    return {"genre_id": genre_id, "title": title, "scope": kind,
+            **unified.surface(db, locale, kind, limit, cursor, genre_id=genre_id)}
 
 
 @router.get("/person/{tmdb_id}/credits", response_model=CursorPage)

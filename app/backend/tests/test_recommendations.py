@@ -93,6 +93,38 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual([r.candidate.entity.key for r in ranked if not r.exclusion], [keys[-1]])
         self.assertGreater(taste.signals[keys[0]]["contributions"]["onboarding"], 0)
 
+    def test_popular_new_releases_and_actual_new_seasons_shelves(self):
+        recent = (self.now.date() - timedelta(days=8)).isoformat()
+        old = (self.now.date() - timedelta(days=800)).isoformat()
+        future = (self.now.date() + timedelta(days=8)).isoformat()
+        for n in range(1, 8):
+            self.put(n, release_date=recent if n <= 3 else future if n == 4 else old, popularity=100 - n)
+        for n in range(1, 5):
+            self.put(100 + n, "tv", release_date=old, popularity=50 - n,
+                seasons=[{"tmdb_id": 1000 + n, "season_number": 2, "name": "Second season",
+                    "air_date": recent if n <= 3 else future, "episode_count": 8}])
+        for surface in ("home", "movies", "series"):
+            first = self.page(surface=surface, batch_size=5)
+            shelves = list(first["shelves"])
+            cursor = first["next_cursor"]
+            if cursor:
+                shelves.extend(self.page(surface=surface, batch_size=5, cursor=cursor)["shelves"])
+            kinds = {s["kind"] for s in shelves}
+            self.assertIn("popular-now", kinds)
+            if surface != "series":
+                self.assertIn("new-releases", kinds)
+                releases = next(s for s in shelves if s["kind"] == "new-releases")
+                self.assertTrue(all(i["release_date"] <= self.now.date().isoformat() for i in releases["items"]))
+            if surface != "movies":
+                self.assertIn("new-seasons", kinds)
+                seasons = next(s for s in shelves if s["kind"] == "new-seasons")
+                self.assertTrue(all(i["new_season"] == 2 and i["media_type"] == "tv" for i in seasons["items"]))
+            if surface == "movies":
+                self.assertNotIn("new-seasons", kinds)
+                self.assertTrue(all(item["media_type"] == "movie" for shelf in shelves for item in shelf["items"]))
+            if surface == "series":
+                self.assertTrue(all(item["media_type"] == "tv" for shelf in shelves for item in shelf["items"]))
+
     def test_completion_brief_start_stale_rewatch_and_substantial(self):
         for n in range(1, 6):
             self.put(n)
@@ -184,20 +216,53 @@ class RecommendationTests(unittest.TestCase):
         for surface, expected in [("home", {"movie", "tv"}), ("movies", {"movie"}), ("series", {"tv"})]:
             result = self.page(surface=surface, batch_size=1)
             shelves, keys, kinds = [], [], set()
-            while True:
+            for _ in range(20):
                 for shelf in result["shelves"]:
                     shelves.append(shelf["id"])
                     for item in shelf["items"]:
                         keys.append(item["key"])
                         kinds.add(item["kind"])
                 cursor = result["next_cursor"]
-                if not cursor:
-                    break
+                self.assertIsNotNone(cursor)
                 result = self.page(surface=surface, batch_size=1, cursor=cursor)
                 self.assertEqual(result, self.page(surface=surface, batch_size=1, cursor=cursor))
             self.assertEqual(kinds, expected)
             self.assertEqual(len(shelves), len(set(shelves)))
-            self.assertEqual(len(keys), len(set(keys)))
+            self.assertFalse(any("More movies" in row or "More series" in row or "Daha fazla" in row for row in shelves))
+
+    def test_sufficient_catalog_keeps_two_continuation_requests_available(self):
+        for n in range(1, 61):
+            self.put(n, "movie", genre=878 if n % 2 else 35)
+            self.put(n + 1000, "tv", genre=80 if n % 2 else 10759)
+        self.seed("movie:1")
+        for surface in ("home", "movies", "series"):
+            first = self.page(surface=surface, batch_size=3)
+            self.assertIsNotNone(first["next_cursor"], surface)
+            second = self.page(surface=surface, batch_size=3, cursor=first["next_cursor"])
+            self.assertIsNotNone(second["next_cursor"], surface)
+            third = self.page(surface=surface, batch_size=3, cursor=second["next_cursor"])
+            ids = [s["id"] for page in (first, second, third) for s in page["shelves"]]
+            keys = [item["key"] for page in (first, second, third) for shelf in page["shelves"] for item in shelf["items"]]
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertGreater(len(set(keys)), 20)
+            early = [s for page in (first, second, third) for s in page["shelves"]]
+            for previous, following in zip(early, early[1:]):
+                if previous["kind"] != "continue" and following["kind"] != "continue":
+                    self.assertFalse({item["key"] for item in previous["items"]} & {item["key"] for item in following["items"]})
+            semantic = [s for s in early if s["kind"] in ("genre", "theme")]
+            if semantic:
+                self.assertEqual(semantic[0]["kind"], "genre")
+            cursor = third["next_cursor"]
+            for _ in range(15):
+                self.assertIsNotNone(cursor)
+                page = self.page(surface=surface, batch_size=3, cursor=cursor)
+                ids.extend(s["id"] for s in page["shelves"])
+                keys.extend(item["key"] for shelf in page["shelves"] for item in shelf["items"])
+                cursor = page["next_cursor"]
+            self.assertGreater(len(ids), 18 if surface == "home" else 9)
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertGreater(len(set(keys)), 20)
+            self.assertIsNotNone(cursor)
 
     def test_continuation_does_not_rebuild_and_feedback_invalidates(self):
         for n in range(1, 20):

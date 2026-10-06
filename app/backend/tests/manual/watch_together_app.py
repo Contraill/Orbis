@@ -16,8 +16,8 @@ from playback.service import upsert_playback_state,episode_identity
 from playback.schemas import PlaybackStateUpdate
 from test_playback_hardening import SequencedProvider,source
 
-providers = [SequencedProvider('smoke-a',1,[[source('smoke-a','moly',protocol='http',quality='900p')]]),
-             SequencedProvider('smoke-b',2,[[source('smoke-b','dbx',protocol='http',quality='720p')]])]
+providers = [SequencedProvider('smoke-a',1,[[source('smoke-a','source-a',protocol='http',quality='900p')]]),
+             SequencedProvider('smoke-b',2,[[source('smoke-b','source-b',protocol='http',quality='720p')]])]
 mapping={p.id:p for p in providers}
 patch('providers.manager.all_providers',return_value=mapping).start()
 patch('providers.manager.get_provider',side_effect=mapping.get).start()

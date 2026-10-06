@@ -122,10 +122,10 @@ classification, not a perfect cultural taxonomy or a parental-control system.
 
 Identity is always `movie:TMDB_ID` or `tv:TMDB_ID`. There are no episode recommendations.
 Candidate source duplicates merge. Feed assembly reserves all Continue Watching
-identities, and every displayed item appears at most once in a feed snapshot,
-including across pages. A new snapshot can naturally repeat earlier discoveries.
+identities. Each shelf has unique canonical items; nearby semantic shelves use a
+bounded recent-item window, while sufficiently long traversal can repeat items.
 
-Each row uses deterministic maximal-marginal-relevance-style selection within a
+Curated rows use deterministic maximal-marginal-relevance-style selection within a
 relevance window. Repeated collection/franchise, genre, cast/director/creator and
 media type incur soft penalties. Comparable movie and TV candidates can mix in Home.
 The relevance floor prevents a highly irrelevant title from winning merely to
@@ -149,9 +149,12 @@ Items use the canonical catalog display contract; Continue Watching adds a bound
 
 Home permits movies and TV; Movies and Series filter both discovery and Continue
 Watching to their media type. Assembly can produce a featured item, Continue
-Watching, profile recommendations, up to three Because You Watched/Selected rows,
-Trending, dynamic genre/keyword/person/company themes, popular and further discovery
-rows. Empty rows are omitted. There are at most 14 shelves and six items per normal
+Watching, actual recently aired TV seasons (season 2 or later), newly released
+movies/series, current cached trending/popular candidates, profile recommendations,
+up to three Because You Watched/Selected rows, then semantic genre/keyword/person/company
+shelves derived from actual catalog features. The two date-based rows use a 180-day
+window and exclude future dates; new seasons require a normalized season air date.
+Empty rows are omitted. There are six items at most per normal
 shelf; default batches therefore load at most 18 posters, maximum batches 30.
 A cold profile without established affinity gets honest catalog/trending discovery
 rather than a row falsely labeled personalized.
@@ -167,13 +170,14 @@ profile-selection access model; it is not a new private-profile authentication s
 ## Cache and invalidation contract
 
 Feed snapshots and cursor pointers use the existing SQLite expiring cache table.
-A materialization lasts 20 minutes. Its key includes profile, signal signature,
+An active materialization renews its 20-minute lease on continuation; idle
+cursors expire. Its key includes profile, signal signature,
 locale, surface, batch size, catalog refresh signature, engine version and policy.
 The signature includes explicit intents, onboarding, completion/rewatch totals,
 meaningful activity-day counts and ten-minute accumulated-viewing buckets. It does
 not count raw save requests. A daily boundary updates time-sensitive penalties.
 
-Scrolling reads cached shelves and checks inexpensive profile aggregates; it does
+Scrolling generates bounded semantic shelves from cached candidates and checks inexpensive profile aggregates; it does
 not rebuild taste/candidates or make TMDB requests. Successful cursor replay is
 identical while the profile signal signature remains unchanged. Catalog enrichment
 does not reorder an existing traversal.
@@ -181,7 +185,12 @@ does not reorder an existing traversal.
 - 422: cursor belongs to a different profile, locale, surface or batch size.
 - 409: meaningful profile signals or feedback changed; restart at the root.
 - 410: snapshot/cursor expired; restart at the root.
-- `next_cursor: null`: clean exhaustion; no artificial endless repetition.
+- `next_cursor: null`: a main feed has no viable semantic candidate template.
+  Normal discovery continues with real genre, person, company, and localized
+  keyword shelves. Once its finite candidate pool has been traversed, a bounded
+  recent-shelf and recent-card window permits controlled repetition. Adjacent
+  shelf IDs remain unique. Category item grids still end at genuine catalog
+  exhaustion.
 
 Invalidation deliberately takes precedence over replay after feedback, so a newly
 disliked title cannot leak into later batches of an old discovery snapshot. Profile

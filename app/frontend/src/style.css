@@ -1610,3 +1610,9 @@ select:focus {
 .foundation-form .checkbox-row input { width: 22px; min-height: 22px; }
 .foundation-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 16px 0; }
 .foundation-page .panel { margin-bottom: 24px; }
+.diagnostic-source-list { display: grid; gap: .8rem; margin-top: 1.25rem; }
+.diagnostic-source-list h3 { margin: 0; font-size: 1rem; }
+.diagnostic-source { padding: 1rem; border: 1px solid var(--glass-border, rgba(170, 220, 230, .18)); border-radius: var(--radius-md, 12px); background: var(--glass-subtle, rgba(6, 24, 38, .55)); }
+.diagnostic-source > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .4rem 1rem; }
+.diagnostic-source p { margin: .45rem 0 0; color: var(--text-secondary, #b7cbd2); }
+.diagnostic-source small { color: var(--text-muted, #91aab4); }

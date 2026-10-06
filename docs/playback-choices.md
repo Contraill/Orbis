@@ -26,7 +26,9 @@ Responses include `choices.providers`, `choices.sources`, `choices.qualities`,
 and `choices.selected_quality_height`. Provider entries represent enabled,
 capable providers, not a promise that every provider carries the current title.
 Source entries represent resolved, usable sources only. HLS qualities come from
-actual master `EXT-X-STREAM-INF` resolutions (deduplicated heights). Discovery
+actual master `EXT-X-STREAM-INF` resolutions. Encoded widths and heights are
+classified into consumer tiers (for example 1920×816 is 1080p); variants in the
+same tier appear once while raw dimensions remain in `encoded_variants`. Discovery
 uses the safe upstream fetcher with a five-second budget and bounded manifests;
 failure leaves Auto available, never invents resolutions or blocks playback.
 Explicit quality uses the requested height, the nearest available lower height,
@@ -37,7 +39,12 @@ fall back to Auto. Non-HLS quality-labelled sources use the same logical policy.
 source-session ID. Quality-only changes reuse the delivery session and master;
 the isolated player applies the server's height as an ABR restriction, allowing
 audio/codec variants at that height. Shaka IDs never leave the player abstraction.
-The UI shows both the preference and current source/applied quality.
+The UI shows both the preference and current source/applied quality. Provider
+audio `track_id` is provider metadata, never a Shaka rendition ID. The player
+matches actual manifest renditions by language, original/dub intent, labels,
+roles and available Shaka group metadata, then checks the active Shaka track
+after selection. If no requested rendition is active, the UI reports the
+actual track or a concise fallback state instead of claiming success.
 
 ## Explicit cross-origin interoperability
 
@@ -89,25 +96,9 @@ deleted through this route; use Revert to Factory for an active override.
 This is a trusted administrator code editor, not a Python security sandbox. It
 retains the existing deployment's admin access boundary. Do not expose it publicly.
 
-## Live validation (2026-09-22/23)
+## Validation boundary
 
-Silo S1E1 exposed Moly (actual 900p/480p master variants) and DBX (1080p).
-Real Chromium playback verified both, manual host switching at the current
-position, DBX Auto/1080p, and Moly's actual transition to 480p. A simulated remote
-client unable to reach VMPX recovered through root → child manifest → segment
-relay, and manual quality/source changes continued to work. The user also
-confirmed DBX 1080p playback in their actual remote browser. Controlled network
-failures verified both DBX → Moly and Moly → DBX fallback at 180 seconds while
-retaining logical audio/subtitle/quality preferences.
-
-DBX manifests and media require the ordinary player's User-Agent and Referer.
-The observed Silo chain uses 25 exact media origins; the adapter discovers and
-declares them from the playlists. Headers stay server-side, so DBX currently uses
-full relay through the server. Its TS segments are incorrectly labeled as HLS
-playlists by upstream; generic bounded MIME detection fixes the content type,
-without changing any bytes. No additional application dependency was introduced.
-
-Severance's DBX HLS also played successfully in Chromium at 720p. Odnok's public embeds for
-Lanterns, Severance and Silo returned `copyrightsRestricted` and no playable
-metadata. Odnok is not integrated/exposed; no attempt is made to bypass that
-restriction. Availability and qualities remain per episode, not static host menus.
+The public fixture tests provider/source fallback, manifest quality classes,
+header grants and recovery without relying on a real third-party service.
+Installation-specific provider observations are kept in private operator notes,
+not in the public authoring guide or release artifact.

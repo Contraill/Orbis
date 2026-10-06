@@ -20,6 +20,7 @@ from activity.service import record_progress
 from metadata.schemas import CatalogDetails
 from playback.schemas import PlaybackStateUpdate
 from playback.service import movie_identity, episode_identity, upsert_playback_state
+from core import owner as owner_recovery
 
 
 class FoundationTests(unittest.TestCase):
@@ -95,6 +96,55 @@ class FoundationTests(unittest.TestCase):
         self.assertEqual(self.client.patch(url, json={"onboarding_seeds": seeds[:1] * 2}).status_code, 422)
         self.assertEqual(self.client.patch(url, json={"onboarding_seeds": seeds[:5]}).status_code, 200)
         self.assertEqual(self.client.patch(url, json={"locale": None}).status_code, 422)
+
+    def test_viewer_self_delete_requires_matching_selection_and_name(self):
+        owner = self.owner()
+        viewer = self.client.post("/api/profiles", json={"name": "Viewer to delete"}).json()
+        self.client.headers.pop("Authorization")
+        url = f"/api/profiles/{viewer['id']}/self-delete"
+        confirmed = {"confirm_name": "Viewer to delete"}
+        self.assertEqual(self.client.delete(f"/api/profiles/{viewer['id']}").status_code, 401)
+        self.assertEqual(self.client.post(url, json=confirmed).status_code, 422)
+        self.assertEqual(self.client.post(url, json=confirmed, headers={"X-Profile-Id": str(owner)}).status_code, 403)
+        self.assertEqual(self.client.post(url, json={"confirm_name": "Wrong"}, headers={"X-Profile-Id": str(viewer['id'])}).status_code, 400)
+        self.assertEqual(self.client.post(f"/api/profiles/{owner}/self-delete", json={"confirm_name": "Owner"}, headers={"X-Profile-Id": str(owner)}).status_code, 409)
+        self.assertEqual(self.client.get(url.replace("/self-delete", "")).status_code, 200)
+        with self.sessions() as db:
+            upsert_playback_state(db, viewer["id"], movie_identity(42), PlaybackStateUpdate(position_seconds=90, duration_seconds=600))
+            self.assertIsNotNone(db.scalar(select(PlaybackState).where(PlaybackState.profile_id == viewer["id"])))
+        response = self.client.post(url, json=confirmed, headers={"X-Profile-Id": str(viewer['id'])})
+        self.assertEqual(response.status_code, 204, response.text)
+        self.assertEqual(self.client.get(f"/api/profiles/{viewer['id']}").status_code, 404)
+        self.assertEqual([profile["id"] for profile in self.client.get("/api/profiles").json()], [owner])
+        with self.sessions() as db:
+            self.assertIsNone(db.scalar(select(PlaybackState).where(PlaybackState.profile_id == viewer["id"])))
+
+    def test_avatar_config_is_validated_and_survives_rename(self):
+        self.owner()
+        viewer = self.client.post("/api/profiles", json={"name": "Avatar viewer"}).json()
+        self.assertIsNone(viewer["avatar_config"])
+        url = f"/api/profiles/{viewer['id']}"
+        config = {"shape": "droplet", "face_preset": "big_eyes", "expression": "wink", "hue": 190, "tone": "mid"}
+        response = self.client.patch(url, json={"avatar_config": config, "name": "Renamed avatar viewer"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["avatar_config"], config)
+        self.assertEqual(response.json()["avatar_seed"], viewer["avatar_seed"])
+        self.assertEqual(self.client.get(url).json()["avatar_config"], config)
+        self.assertEqual(self.client.patch(url, json={"avatar_config": {"shape": "unknown"}}).status_code, 422)
+        self.assertEqual(self.client.patch(url, json={"avatar_config": {"hue": 999}}).status_code, 422)
+        updated = self.client.patch(url, json={"avatar_config": {"shape": "sun", "expression": "sleepy", "hue": 319, "tone": .42}})
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(self.client.get(url).json()["avatar_config"]["hue"], 319)
+        self.assertEqual(self.client.patch(url, json={"avatar_config": {"tone": 1.5}}).status_code, 422)
+
+    def test_local_owner_password_recovery_revokes_old_sessions(self):
+        self.owner()
+        old_token = self.client.headers["Authorization"]
+        with patch("core.owner.SessionLocal", self.sessions), patch("core.owner.getpass", side_effect=["new-correct-owner-pass", "new-correct-owner-pass"]):
+            owner_recovery.main()
+        self.assertEqual(self.client.get("/api/setup/session", headers={"Authorization": old_token}).status_code, 401)
+        self.assertEqual(self.client.post("/api/setup/login", json={"password": "correct-horse-battery"}).status_code, 401)
+        self.assertEqual(self.client.post("/api/setup/login", json={"password": "new-correct-owner-pass"}).status_code, 200)
 
     def test_add_profile_accepts_all_onboarding_fields_without_reopening_setup(self):
         owner = self.owner()

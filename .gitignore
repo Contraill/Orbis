@@ -24,9 +24,14 @@ __pycache__/
 # Node / Vite
 node_modules/
 dist/
+tv/dist/
+config/tv/
 
 # IDE / OS
 .idea/
 .vscode/
 .DS_Store
 config/providers/
+config/private-backups/
+docker-compose.override.yml
+docker-compose.yml.bak

@@ -144,8 +144,8 @@ async def person_credits(db, client, tmdb_id, locale):
         db.commit()
 
 
-def surface(db, locale, kind="all", limit=20, cursor=None, profile_id=None, my_list=False, entity_key=None):
-    scope = {"locale": locale, "kind": kind, "limit": limit, "profile_id": profile_id, "my_list": my_list, "entity_key": entity_key}
+def surface(db, locale, kind="all", limit=20, cursor=None, profile_id=None, my_list=False, entity_key=None, genre_id=None):
+    scope = {"locale": locale, "kind": kind, "limit": limit, "profile_id": profile_id, "my_list": my_list, "entity_key": entity_key, "genre_id": genre_id}
     if cursor:
         record = db.get(SearchCache, cursor)
         if not record or record.expires_at <= utc_now():
@@ -160,18 +160,33 @@ def surface(db, locale, kind="all", limit=20, cursor=None, profile_id=None, my_l
         after = ""
         ceiling = utc_now().isoformat()
     # Keyset pagination is shared by Home, Movies, Series, My List and credits.
-    stmt = select(CatalogEntity.key).where(CatalogEntity.kind.in_(["movie", "tv"]), CatalogEntity.key > after, CatalogEntity.created_at <= datetime.fromisoformat(ceiling))
+    mixed_genre = genre_id is not None and kind == "all"
+    stmt = select(CatalogEntity.key).where(CatalogEntity.kind.in_(["movie", "tv"]), CatalogEntity.created_at <= datetime.fromisoformat(ceiling))
+    if mixed_genre:
+        from sqlalchemy import tuple_
+        if after:
+            stmt = stmt.where(tuple_(CatalogEntity.tmdb_id, CatalogEntity.kind, CatalogEntity.key) > tuple(after))
+    else:
+        stmt = stmt.where(CatalogEntity.key > after)
     if kind != "all":
         stmt = stmt.where(CatalogEntity.kind == kind)
     if my_list:
         stmt = stmt.join(LibraryIntent, (LibraryIntent.tmdb_id == CatalogEntity.tmdb_id) & (LibraryIntent.media_type == CatalogEntity.kind)).where(LibraryIntent.profile_id == profile_id, LibraryIntent.in_my_list.is_(True))
     if entity_key:
         stmt = stmt.where(CatalogEntity.key.in_(select(CatalogLink.media_key).where(CatalogLink.entity_key == entity_key)))
-    keys = list(db.scalars(stmt.order_by(CatalogEntity.key).limit(limit + 1)))
+    if genre_id is not None:
+        from db.models.catalog import CatalogFeature
+        from metadata.genres import genre_ids
+        terms = [f"genre:{number}" for number in genre_ids(genre_id, kind)]
+        stmt = stmt.where(CatalogEntity.key.in_(select(CatalogFeature.media_key).where(CatalogFeature.term.in_(terms))))
+    order = (CatalogEntity.tmdb_id, CatalogEntity.kind, CatalogEntity.key) if mixed_genre else (CatalogEntity.key,)
+    keys = list(db.scalars(stmt.order_by(*order).limit(limit + 1)))
     next_cursor = None
     if len(keys) > limit:
         next_cursor = uuid4().hex
-        save(db, next_cursor, {"scope": scope, "after": keys[limit - 1], "ceiling": ceiling})
+        last = db.get(CatalogEntity, keys[limit - 1]) if mixed_genre else None
+        save(db, next_cursor, {"scope": scope,
+            "after": [last.tmdb_id, last.kind, last.key] if last else keys[limit - 1], "ceiling": ceiling})
     items = [display(db, key, locale) for key in keys[:limit]]
     if entity_key:
         for item in items:

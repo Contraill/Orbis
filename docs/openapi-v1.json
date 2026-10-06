@@ -84,6 +84,114 @@
         "title": "AudioTrack",
         "type": "object"
       },
+      "AvatarConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "expression": {
+            "anyOf": [
+              {
+                "enum": [
+                  "idle",
+                  "happy",
+                  "sad",
+                  "mad",
+                  "surprised",
+                  "wink",
+                  "sleepy",
+                  "smug",
+                  "unsure",
+                  "scared",
+                  "love",
+                  "shy",
+                  "sick",
+                  "thinking"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expression"
+          },
+          "face_preset": {
+            "anyOf": [
+              {
+                "enum": [
+                  "soft",
+                  "wide",
+                  "tall",
+                  "big_eyes",
+                  "compact"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Preset"
+          },
+          "hue": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 360.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hue"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "enum": [
+                  "round",
+                  "organic",
+                  "boxy",
+                  "capsule",
+                  "nub",
+                  "cloud",
+                  "droplet",
+                  "hexagon",
+                  "sun",
+                  "triangle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "enum": [
+                  "pale",
+                  "mid",
+                  "deep",
+                  "bright"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          }
+        },
+        "title": "AvatarConfig",
+        "type": "object"
+      },
       "BootstrapInput": {
         "additionalProperties": false,
         "properties": {
@@ -662,7 +770,14 @@
         "additionalProperties": false,
         "properties": {
           "content": {
-            "$ref": "#/components/schemas/Content"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Content"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "position": {
             "default": 0,
@@ -672,9 +787,6 @@
             "type": "number"
           }
         },
-        "required": [
-          "content"
-        ],
         "title": "CreateRoom",
         "type": "object"
       },
@@ -1219,6 +1331,17 @@
             ],
             "title": "Media Type"
           },
+          "new_season": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Season"
+          },
           "original_title": {
             "anyOf": [
               {
@@ -1368,6 +1491,50 @@
           "shelves"
         ],
         "title": "FeedPage",
+        "type": "object"
+      },
+      "GenreSearchPage": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/GenreSearchResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "GenreSearchPage",
+        "type": "object"
+      },
+      "GenreSearchResult": {
+        "properties": {
+          "genre_id": {
+            "title": "Genre Id",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "all",
+              "movie",
+              "tv"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "genre_id",
+          "title",
+          "scope"
+        ],
+        "title": "GenreSearchResult",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2820,6 +2987,16 @@
             ],
             "title": "Avatar"
           },
+          "avatar_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "avatar_seed": {
             "anyOf": [
               {
@@ -2924,6 +3101,16 @@
             ],
             "title": "Avatar"
           },
+          "avatar_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "avatar_seed": {
             "anyOf": [
               {
@@ -3018,6 +3205,22 @@
         "title": "ProfileResponse",
         "type": "object"
       },
+      "ProfileSelfDelete": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Confirm Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm_name"
+        ],
+        "title": "ProfileSelfDelete",
+        "type": "object"
+      },
       "ProfileUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -3037,6 +3240,16 @@
               }
             ],
             "title": "Avatar"
+          },
+          "avatar_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "avatar_seed": {
             "anyOf": [
@@ -3515,6 +3728,13 @@
       },
       "QualityChoice": {
         "properties": {
+          "encoded_variants": {
+            "items": {
+              "$ref": "#/components/schemas/QualityVariant"
+            },
+            "title": "Encoded Variants",
+            "type": "array"
+          },
           "height": {
             "title": "Height",
             "type": "integer"
@@ -3529,6 +3749,24 @@
           "label"
         ],
         "title": "QualityChoice",
+        "type": "object"
+      },
+      "QualityVariant": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ],
+        "title": "QualityVariant",
         "type": "object"
       },
       "ResolveRoom": {
@@ -4031,6 +4269,33 @@
             ],
             "title": "Context Key"
           },
+          "genre_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genre Id"
+          },
+          "genre_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "all",
+                  "movie",
+                  "tv"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genre Scope"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -4224,6 +4489,32 @@
           }
         },
         "title": "Transition",
+        "type": "object"
+      },
+      "TransitionRoom": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/Content"
+          },
+          "position": {
+            "default": 0,
+            "maximum": 604800.0,
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "number"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "content"
+        ],
+        "title": "TransitionRoom",
         "type": "object"
       },
       "UnifiedSearchPage": {
@@ -9222,6 +9513,424 @@
           }
         },
         "summary": "Company Credits",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/catalog/genres": {
+      "get": {
+        "operationId": "search_genres_api_catalog_genres_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 2,
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "movie",
+                "tv"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "profile_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "en-US",
+                    "tr-TR"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Locale"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenreSearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          }
+        },
+        "summary": "Search Genres",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/catalog/genres/{genre_id}/items": {
+      "get": {
+        "operationId": "genre_items_api_catalog_genres__genre_id__items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "genre_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Genre Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "movie",
+                "tv"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "profile_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "en-US",
+                    "tr-TR"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Locale"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          }
+        },
+        "summary": "Genre Items",
         "tags": [
           "catalog"
         ]
@@ -16783,6 +17492,160 @@
         ]
       }
     },
+    "/api/profiles/{profile_id}/self-delete": {
+      "post": {
+        "operationId": "self_delete_profile_api_profiles__profile_id__self_delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Profile-Id",
+            "required": true,
+            "schema": {
+              "title": "X-Profile-Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileSelfDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          }
+        },
+        "summary": "Self Delete Profile",
+        "tags": [
+          "profiles"
+        ]
+      }
+    },
     "/api/sessions": {
       "post": {
         "operationId": "create_api_sessions_post",
@@ -18181,6 +19044,147 @@
         ]
       }
     },
+    "/api/watch-together/join": {
+      "post": {
+        "operationId": "join_code_api_watch_together_join_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          }
+        },
+        "summary": "Join Code",
+        "tags": [
+          "watch together"
+        ]
+      }
+    },
     "/api/watch-together/rooms": {
       "post": {
         "operationId": "create_api_watch_together_rooms_post",
@@ -18455,6 +19459,146 @@
           }
         },
         "summary": "Current",
+        "tags": [
+          "watch together"
+        ]
+      }
+    },
+    "/api/watch-together/rooms/{room_id}/exit": {
+      "post": {
+        "operationId": "exit_room_api_watch_together_rooms__room_id__exit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          }
+        },
+        "summary": "Exit Room",
         "tags": [
           "watch together"
         ]
@@ -18745,6 +19889,156 @@
           }
         },
         "summary": "Resolve",
+        "tags": [
+          "watch together"
+        ]
+      }
+    },
+    "/api/watch-together/rooms/{room_id}/transition": {
+      "post": {
+        "operationId": "transition_api_watch_together_rooms__room_id__transition_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRoom"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorV1"
+                }
+              }
+            },
+            "description": "Normalized V1 error"
+          }
+        },
+        "summary": "Transition",
         "tags": [
           "watch together"
         ]

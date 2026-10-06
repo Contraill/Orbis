@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import ReactDOM from "react-dom/client";
 
 import {
@@ -6,32 +6,65 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
+  useNavigationType,
 } from "react-router-dom";
 
-import AdminShell from "./admin/AdminShell";
-import DiagnosticsPage from "./admin/DiagnosticsPage";
-import OverviewPage from "./admin/OverviewPage";
-import ProviderEditorPage from "./admin/ProviderEditorPage";
-import ProvidersPage from "./admin/ProvidersPage";
-import SessionsPage from "./admin/SessionsPage";
-import SettingsPage from "./admin/SettingsPage";
-import TestsPage from "./admin/TestsPage";
 import { ProfileProvider } from "./app/ProfileContext";
 import DetailPage from "./catalog/DetailPage";
 import HomePage from "./catalog/HomePage";
-import PlaybackPage from "./playback/PlaybackPage";
+import { lazy, Suspense } from "react";
+const PlaybackPage = lazy(() => import("./playback/PlaybackPage"));
+const SearchPage = lazy(() => import("./catalog/SearchPage"));
+const GenrePage = lazy(() => import("./catalog/GenrePage"));
+const AdminShell = lazy(() => import("./admin/AdminShell"));
+const DiagnosticsPage = lazy(() => import("./admin/DiagnosticsPage"));
+const OverviewPage = lazy(() => import("./admin/OverviewPage"));
+const ProviderEditorPage = lazy(() => import("./admin/ProviderEditorPage"));
+const ProvidersPage = lazy(() => import("./admin/ProvidersPage"));
+const SessionsPage = lazy(() => import("./admin/SessionsPage"));
+const SettingsPage = lazy(() => import("./admin/SettingsPage"));
+const TestsPage = lazy(() => import("./admin/TestsPage"));
 
 import "./style.css";
+import "./product.css";
+import "./silk-glass.css";
 import SetupGate from "./app/SetupGate";
 import ProfileSettings from "./app/ProfileSettings";
 import AddProfilePage from "./app/AddProfilePage";
-import LibraryPage from "./catalog/LibraryPage";
+import TasteSelection from "./app/TasteSelection";
+import MyListPage from "./catalog/MyListPage";
+import { invalidateFeedCache } from "./catalog/InfiniteShelfFeed";
+import { useText } from "./app/i18n";
+import OrbisSilkBackground from "./app/OrbisSilkBackground";
+import { GlobalWatchTogetherProvider } from "./watch/GlobalWatchTogether";
+import TvConnectionGuard from "./app/TvConnectionGuard";
+
+function RouteLoading() { const t = useText(); return <div className="product-loading" role="status">{t("Loading…")}</div>; }
+
+const scrollPositions = new Map<string, number>();
+let previousPath = "";
+function RouteScroll() {
+  const location = useLocation();
+  const type = useNavigationType();
+  useLayoutEffect(() => {
+    if (previousPath.startsWith("/watch/") && !location.pathname.startsWith("/watch/")) invalidateFeedCache();
+    previousPath = location.pathname;
+    window.scrollTo(0, type === "POP" ? scrollPositions.get(location.key) ?? 0 : 0);
+    return () => { scrollPositions.set(location.key, window.scrollY); if (scrollPositions.size > 50) scrollPositions.delete(scrollPositions.keys().next().value!); };
+  }, [location.key, type]);
+  return null;
+}
 
 
 function App() {
   return (
     <ProfileProvider>
       <BrowserRouter>
+        <GlobalWatchTogetherProvider>
+        <OrbisSilkBackground />
+        <TvConnectionGuard />
+        <RouteScroll />
         <SetupGate>
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -39,7 +72,10 @@ function App() {
           <Route path="/series" element={<HomePage surface="series" />} />
           <Route path="/profile" element={<ProfileSettings />} />
           <Route path="/profiles/new" element={<AddProfilePage />} />
-          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/profiles/:id/taste" element={<TasteSelection />} />
+          <Route path="/library" element={<MyListPage />} />
+          <Route path="/search" element={<Suspense fallback={<RouteLoading />}><SearchPage /></Suspense>} />
+          <Route path="/genre/:genreId" element={<Suspense fallback={<RouteLoading />}><GenrePage /></Suspense>} />
 
           <Route
             path="/movie/:tmdbId"
@@ -56,17 +92,17 @@ function App() {
               "/watch/:profileId/:mediaType/:tmdbId" +
               "/season/:seasonNumber/episode/:episodeNumber"
             }
-            element={<PlaybackPage />}
+            element={<Suspense fallback={<RouteLoading />}><PlaybackPage /></Suspense>}
           />
 
           <Route
             path="/watch/:profileId/:mediaType/:tmdbId"
-            element={<PlaybackPage />}
+            element={<Suspense fallback={<RouteLoading />}><PlaybackPage /></Suspense>}
           />
 
           <Route
             path="/admin"
-            element={<AdminShell />}
+            element={<Suspense fallback={<RouteLoading />}><AdminShell /></Suspense>}
           >
             <Route index element={<OverviewPage />} />
             <Route path="sessions" element={<SessionsPage />} />
@@ -103,6 +139,7 @@ function App() {
           />
         </Routes>
         </SetupGate>
+        </GlobalWatchTogetherProvider>
       </BrowserRouter>
     </ProfileProvider>
   );

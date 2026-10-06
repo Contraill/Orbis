@@ -7,6 +7,7 @@ Surface = Literal["home", "movies", "series"]
 
 class FeedItem(SearchResult):
     resume: dict | None = None
+    new_season: int | None = None
 
 
 class Shelf(BaseModel):
@@ -16,6 +17,8 @@ class Shelf(BaseModel):
     personalized: bool = False
     items: list[FeedItem]
     context_key: str | None = None
+    genre_id: int | None = None
+    genre_scope: Literal["all", "movie", "tv"] | None = None
 
 
 class FeedPage(BaseModel):

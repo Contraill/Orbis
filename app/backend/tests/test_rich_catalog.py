@@ -89,6 +89,26 @@ class RichCatalogTests(unittest.TestCase):
         found = surface(self.db, "en-US", entity_key=person["key"])
         self.assertEqual(found["results"][0]["key"], "tv:9")
 
+    def test_genre_category_scope_and_keyset_pagination(self):
+        from metadata.genres import genre_ids, label, search as search_genres
+        self.put(tmdb_id=1, genre_refs=[{"tmdb_id": 28, "name": "Action"}])
+        self.put(tmdb_id=2, genre_refs=[{"tmdb_id": 28, "name": "Action"}])
+        self.put(media_type="tv", tmdb_id=3, genre_refs=[{"tmdb_id": 10759, "name": "Action & Adventure"}])
+        self.put(media_type="tv", tmdb_id=4, genre_refs=[{"tmdb_id": 18, "name": "Drama"}])
+        self.assertEqual(genre_ids(28, "all"), (28, 10759))
+        self.assertEqual(search_genres("aksiyon", "all", "en-US")[0]["genre_id"], 28)
+        self.assertEqual(search_genres("action", "tv", "tr-TR")[0]["title"], "Aksiyon Dizileri")
+        self.assertEqual(search_genres("bilim kurgu", "movie", "tr-TR")[0]["genre_id"], 878)
+        self.assertEqual(label(28, "movie", "tr-TR"), "Aksiyon Filmleri")
+        self.assertEqual({item["kind"] for item in surface(self.db, "en-US", genre_id=28, limit=3)["results"]}, {"movie", "tv"})
+        first = surface(self.db, "en-US", genre_id=28, limit=1)
+        second = surface(self.db, "en-US", genre_id=28, limit=1, cursor=first["next_cursor"])
+        third = surface(self.db, "en-US", genre_id=28, limit=1, cursor=second["next_cursor"])
+        self.assertEqual({p["results"][0]["key"] for p in (first, second, third)}, {"movie:1", "movie:2", "tv:3"})
+        self.assertIsNone(third["next_cursor"])
+        self.assertEqual({i["kind"] for i in surface(self.db, "en-US", kind="movie", genre_id=28)["results"]}, {"movie"})
+        self.assertEqual({i["kind"] for i in surface(self.db, "en-US", kind="tv", genre_id=28)["results"]}, {"tv"})
+
     def test_remote_cache_dedup_and_pagination_beyond_first_page(self):
         self.put()
         async def upstream(path, params):

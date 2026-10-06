@@ -12,11 +12,12 @@ Uvicorn with one worker, 4096-byte WebSocket messages and queue depth 16. Migrat
 must succeed before HTTP service starts. Do not start concurrent migration/app
 replicas against the same SQLite file. SQLite connections enable foreign keys and
 use a five-second busy timeout. No schema change is needed for this hardening;
-current head is `e64a0c31f952`.
+current head is `f0b3c9d7412a` (additive nullable profile avatar configuration).
 
-`.env.example` documents DATABASE_URL (default `sqlite:////data/media-app.db`),
+`.env.example` documents DATABASE_URL (fresh-install default `sqlite:////data/orbis.db`; existing installations may retain `media-app.db`),
 TMDB_API_KEY, TMDB_LANGUAGE fallback, APP_ENV/APP_NAME, BUILD_ID and bounded
-PROVIDER_OPERATION_TIMEOUT_SECONDS. TMDB/IMDb absence does not block startup.
+PROVIDER_OPERATION_TIMEOUT_SECONDS. The public Compose template requires a
+TMDB key in `.env`; optional IMDb data is not required.
 Profile locale overrides metadata language. BUILD_ID contains only safe version
 characters; `/api/admin/system` never returns environment variables or secrets.
 
@@ -24,7 +25,7 @@ Compose persists `./data:/data`, `./config:/config`, `./cache:/cache`, `./logs:/
 Backend health probes `/api/health`; frontend probes the same endpoint through
 nginx. Frontend startup waits for backend health. These checks show service/proxy
 readiness, not external-provider availability. Restart policy remains unless-stopped.
-The existing host port exposure is unchanged. This deployment assumes an already
+The public template publishes only the frontend port. This deployment assumes an already
 trusted household/tailnet boundary; it does not add public ingress or TLS.
 
 Admin provider settings are written atomically with mode 0600. The new umask
@@ -65,11 +66,12 @@ config so DB/config describe a coherent installation. Example Python pattern:
 
 ```python
 import sqlite3
-with sqlite3.connect('file:/data/media-app.db?mode=ro', uri=True) as source:
-    with sqlite3.connect('/backup/media-app.db') as target:
+with sqlite3.connect('file:/data/orbis.db?mode=ro', uri=True) as source:
+    with sqlite3.connect('/backup/orbis.db') as target:
         source.backup(target)
 ```
 
+Adjust the source path to the actual `DATABASE_URL` on older installations.
 The target must be a new, protected backup path, not the live database.
 
 ## Restore contract

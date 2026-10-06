@@ -7,7 +7,6 @@ import {
 } from "react";
 
 import {
-  Link,
   useLocation,
   useParams,
   useNavigate,
@@ -20,13 +19,19 @@ import {
   resolvePlayback,
   savePlaybackState,
   choosePlayback,
-  ensureClientSession, heartbeatClient, detectCapabilities,
+  ensureClientSession, heartbeatClient,
   getEpisodeLifecycle, prepareNextEpisode, transitionEpisode, request,
+  getCatalogDetails,
   type EpisodeLifecycle, type ClientSessionView,
 } from "../api";
 import MediaPlayer from "../player/MediaPlayer";
-import WatchTogetherPanel from "./WatchTogetherPanel";
+import GlobalRoomControl from "../watch/GlobalRoomControl";
+import { useGlobalWatchTogether } from "../watch/GlobalWatchTogether";
+import PlayerOverlay from "./PlayerOverlay";
+import OrbitalLoader from "./OrbitalLoader";
+import "./player.css";
 import { useProfile } from "../app/ProfileContext";
+import { useText } from "../app/i18n";
 import type {
   AudioKind,
   AudioTrack,
@@ -56,14 +61,6 @@ function parseSeason(value: string | undefined) {
   return Number.isInteger(parsed) && parsed >= 0
     ? parsed
     : null;
-}
-
-
-function formatTime(seconds: number) {
-  const safe = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(safe / 60);
-  const remaining = String(safe % 60).padStart(2, "0");
-  return `${minutes}:${remaining}`;
 }
 
 
@@ -101,6 +98,8 @@ function sameSubtitleTrack(
 
 export default function PlaybackPage() {
   const { profile: activeProfile, reload: reloadProfile } = useProfile();
+  const t = useText();
+  const watch = useGlobalWatchTogether();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -161,12 +160,14 @@ export default function PlaybackPage() {
   const [session, setSession] =
     useState<PlaybackSession | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const pendingSeekRef = useRef<number | null>(null);
   const [sourceStartPosition, setSourceStartPosition] =
     useState(0);
   const [duration, setDuration] =
     useState<number | null>(null);
   const [selectedAudio, setSelectedAudio] =
     useState<AudioTrack | null>(null);
+  const [audioOutcome, setAudioOutcome] = useState<{ matched: boolean; activeLabel: string | null } | null>(null);
   const [preferredAudioLanguage, setAudioLanguage] =
     useState<string | null>(null);
   const [preferredAudioKind, setAudioKind] =
@@ -178,6 +179,7 @@ export default function PlaybackPage() {
   const [selectedSubtitle, setSelectedSubtitle] =
     useState<SubtitleTrack | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resolveRetry, setResolveRetry] = useState(0);
   const [failoverBusy, setFailoverBusy] = useState(false);
   const [message, setMessage] =
     useState<string | null>(null);
@@ -185,16 +187,27 @@ export default function PlaybackPage() {
     useState<string | null>(null);
 
   const [lifecycle, setLifecycle] = useState<EpisodeLifecycle | null>(null);
-  const [roomActive, setRoomActive] = useState(false);
+  const roomActive = Boolean(watch.room);
   const [clientInfo, setClientInfo] = useState<ClientSessionView | null>(null);
-  const [heightLimit, setHeightLimit] = useState(Number(sessionStorage.getItem("orbis.client-height")) || 1080);
+  const [videoNode, setVideoNode] = useState<HTMLVideoElement | null>(null);
+  const lastRoomSource = useRef<string | null>(null);
+  useEffect(() => {
+    if (!roomActive || !session?.source_session_id) { lastRoomSource.current = null; return; }
+    if (lastRoomSource.current && lastRoomSource.current !== session.source_session_id) watch.send("preferences_changed");
+    lastRoomSource.current = session.source_session_id;
+  }, [roomActive, session?.source_session_id, watch.send]);
+  const [nextCountdown, setNextCountdown] = useState<number | null>(null);
+  const [catalogTitle, setCatalogTitle] = useState<string | null>(null);
+  const [originalLanguage, setOriginalLanguage] = useState<string | null>(null);
   const preparedRef = useRef<string | undefined>(undefined);
+  const preparingRef = useRef(false);
   const presenceState = useRef<"playing" | "paused">("paused");
   const readyRef = useRef(false);
   const transitionRef = useRef(false);
   const saveInFlightRef = useRef<Promise<void> | null>(null);
   const completedRef = useRef(false);
   const routeGeneration = useRef(0);
+  const videoElement = useCallback((node: HTMLVideoElement | null) => setVideoNode(node), []);
   useEffect(() => {
     routeGeneration.current += 1;
     return () => { routeGeneration.current += 1; };
@@ -246,9 +259,11 @@ export default function PlaybackPage() {
       ? resumePosition
       : Math.min(resumePosition, next.state.duration_seconds);
     setCurrentTime(boundedPosition);
+    pendingSeekRef.current = null;
     setSourceStartPosition(boundedPosition);
     setDuration(next.state.duration_seconds);
     setSelectedAudio(audioTrack);
+    setAudioOutcome(null);
     setAudioLanguage(
       next.state.preferred_audio_language,
     );
@@ -281,7 +296,12 @@ export default function PlaybackPage() {
         setClientInfo(client);
         const prepared = routeState?.playbackSession;
         const matches = prepared && prepared.state.profile_id === identity.profileId && prepared.state.tmdb_id === identity.tmdbId && prepared.state.season_number === (identity.seasonNumber ?? null) && prepared.state.episode_number === (identity.episodeNumber ?? null) && prepared.client_session_id === client.id;
-        const resolved = matches ? prepared : await resolvePlayback(identity);
+        const shared = watch.room;
+        const sameRoomContent = shared?.content?.media_type === identity.mediaType && shared.content.tmdb_id === identity.tmdbId &&
+          shared.content.season_number === (identity.seasonNumber ?? null) && shared.content.episode_number === (identity.episodeNumber ?? null);
+        const resolved = matches ? prepared : sameRoomContent ? (await request<{ playback: PlaybackSession }>(`/api/watch-together/rooms/${encodeURIComponent(shared.room_id)}/resolve`, {
+          method: "POST", headers: { "X-Orbis-Session": client.id }, body: JSON.stringify({ content_revision: shared.content_revision }),
+        })).playback : await resolvePlayback(identity);
         if (!cancelled) {
           applySession(resolved);
         }
@@ -303,11 +323,20 @@ export default function PlaybackPage() {
     return () => {
       cancelled = true;
     };
-  }, [identity, applySession]);
+  }, [identity, applySession, resolveRetry, watch.room?.content_revision, watch.room?.room_id]);
+
+  useEffect(() => {
+    if (!identity) return;
+    let active = true;
+    void getCatalogDetails(identity.mediaType, identity.tmdbId).then(value => {
+      if (active) { setCatalogTitle(value.title); setOriginalLanguage(value.original_language ?? null); }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [identity, routeState?.title, activeProfile?.locale]);
 
   useEffect(() => {
     let cancelled = false;
-    setLifecycle(null); preparedRef.current = undefined;
+    setLifecycle(null); preparedRef.current = undefined; preparingRef.current = false;
     if (identity?.mediaType === "tv") {
       getEpisodeLifecycle(identity).then(value => { if (!cancelled) setLifecycle(value); })
         .catch(reason => { if (!cancelled) setMessage(String(reason)); });
@@ -439,7 +468,7 @@ export default function PlaybackPage() {
   const requestReplacement = useCallback(
     async (
       mode: "failover" | "refresh" | "recover",
-      reason?: string,
+      _reason?: string,
       failure?: PlaybackFailure,
     ) => {
       const latest = latestRef.current;
@@ -461,12 +490,10 @@ export default function PlaybackPage() {
       setError(null);
       setMessage(
         mode === "refresh"
-          ? "Refreshing expiring source…"
+          ? "Refreshing playback…"
           : mode === "recover"
           ? "Recovering playback…"
-          : reason
-          ? `Source failed: ${reason}. Trying next provider…`
-          : "Trying next provider…",
+          : "Finding another playable stream…",
       );
 
       try {
@@ -503,28 +530,18 @@ export default function PlaybackPage() {
         );
         setMessage(
           mode === "refresh"
-            ? "Playback source refreshed"
+            ? "Playback refreshed"
             : mode === "recover"
             ? "Playback recovered"
-            : `Switched to ${next.resolution.selected_provider_id}`,
+            : "Playback restored",
         );
-      } catch (failoverError) {
-        const errorMessage = failoverError instanceof Error
-          ? failoverError.message
-          : "No playback source is available";
+      } catch {
         if (mode === "refresh") {
           setMessage(null);
-          setError(
-            `Source refresh failed: ${errorMessage}. ` +
-            "The current source remains active.",
-          );
+          setError("Playback refresh failed. Please retry.");
         } else {
           setMessage(null);
-          setError(
-            reason
-              ? `${errorMessage}. Initial source error: ${reason}`
-              : errorMessage,
-          );
+          setError("Playback could not continue. Please retry.");
         }
       } finally {
         transitionRef.current = false;
@@ -619,6 +636,13 @@ export default function PlaybackPage() {
     if (generation !== routeGeneration.current) return;
     transitionRef.current = true; setFailoverBusy(true); setError(null);
     try {
+      if (roomActive) {
+        const nextRef = direction === "next" ? lifecycle?.next : lifecycle?.previous;
+        if (!nextRef?.aired) return;
+        readyRef.current = false;
+        await watch.start({ media_type: "tv", tmdb_id: identity.tmdbId, season_number: nextRef.season_number, episode_number: nextRef.episode_number }, `/watch/${identity.profileId}/tv/${identity.tmdbId}/season/${nextRef.season_number}/episode/${nextRef.episode_number}`, { returnTo });
+        return;
+      }
       const next = await transitionEpisode(identity, direction, direction === "next" ? preparedRef.current : undefined);
       if (generation !== routeGeneration.current) return;
       readyRef.current = false;
@@ -627,105 +651,84 @@ export default function PlaybackPage() {
     finally { transitionRef.current = false; setFailoverBusy(false); }
   }
 
-  if (loading) {
-    return (
-      <main className="playback-page playback-centered">
-        Resolving playback…
-      </main>
-    );
-  }
+  useEffect(() => {
+    if (nextCountdown === null) return;
+    if (nextCountdown <= 0) { setNextCountdown(null); void moveEpisode("next"); return; }
+    const timer = window.setTimeout(() => setNextCountdown(value => value === null ? null : value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [nextCountdown]);
 
-  if (!identity || !session) {
-    return (
-      <main className="playback-page playback-centered">
-        <div>
-          <p className="banner error-banner">
-            {error ?? "Playback is unavailable"}
-          </p>
-          <Link className="back-link" to={returnTo}>
-            ← Back to details
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  useEffect(() => {
+    if (!identity || identity.mediaType !== "tv" || !lifecycle?.autoplay_allowed || !duration || currentTime < duration - 75 || preparedRef.current || preparingRef.current || completedRef.current || roomActive) return;
+    preparingRef.current = true;
+    const generation = routeGeneration.current;
+    void prepareNextEpisode(identity).then(prepared => { if (generation === routeGeneration.current) preparedRef.current = prepared.source_session_id; }).catch(() => {}).finally(() => { preparingRef.current = false; });
+  }, [identity, lifecycle?.autoplay_allowed, duration, currentTime, roomActive]);
+
+  const back = () => navigate(returnTo);
+  if (loading) return <OrbitalLoader />;
+  if (!identity || !session) return <main className="orbis-player-state" role="alert"><img src="/brand/standalone-icon.png" alt="" /><h1>{t("Playback is unavailable")}</h1><p>{t("Try again or choose another title.")}</p>{identity ? <button onClick={() => setResolveRetry(value => value + 1)}>{t("Try again")}</button> : null}<button onClick={back}>{t("Back to details")}</button></main>;
 
   const source = session.selected_source;
-  const selectableSubtitles = source.subtitle_tracks.filter(
-    (track) => track.kind !== "burned_in",
-  );
+  const subtitleSelectionValue = subtitleSelection;
+  const updateAutoplay = async (enabled: boolean) => {
+    try {
+      await request(`/api/profiles/${identity.profileId}`, { method: "PATCH", body: JSON.stringify({ autoplay_next_episode: enabled }) });
+      await reloadProfile();
+      setLifecycle(await getEpisodeLifecycle(identity));
+    } catch { setError(t("Could not update autoplay preference.")); }
+  };
+  const chooseEpisode = async (season: number, episode: number) => {
+    if (transitionRef.current) return;
+    if (season === identity.seasonNumber && episode === identity.episodeNumber) return;
+    await persist();
+    readyRef.current = false;
+    if (roomActive) {
+      await watch.start({ media_type: "tv", tmdb_id: identity.tmdbId, season_number: season, episode_number: episode }, `/watch/${identity.profileId}/tv/${identity.tmdbId}/season/${season}/episode/${episode}`, { title: routeState?.title?.split(" · ")[0], returnTo });
+      return;
+    }
+    navigate(`/watch/${identity.profileId}/tv/${identity.tmdbId}/season/${season}/episode/${episode}`, { state: { title: routeState?.title?.split(" · ")[0], returnTo } });
+  };
 
-  return (
-    <main className="playback-page">
-      <header className="playback-header">
-        <div>
-          <Link className="back-link" to={returnTo}>
-            ← Back to details
-          </Link>
-          <p className="section-kicker">PLAYBACK</p>
-          <h1>
-            {routeState?.title ?? (
-              identity.mediaType === "movie"
-                ? `Movie ${identity.tmdbId}`
-                : (
-                  `TV ${identity.tmdbId} · ` +
-                  `S${identity.seasonNumber}` +
-                  `E${identity.episodeNumber}`
-                )
-            )}
-          </h1>
-        </div>
-
-        <div className="playback-provider">
-          <span>Provider</span>
-          <strong>
-            {session.resolution.selected_provider_id}
-          </strong>
-          <small>
-            {source.protocol.toUpperCase()}
-            {source.quality ? ` · ${source.quality}` : ""}
-          </small>
-        </div>
-      </header>
-
-      {error && (
-        <div className="banner error-banner">{error}</div>
-      )}
-      {message && (
-        <div className="banner success-banner">
-          {message}
-        </div>
-      )}
-
-      <section className="playback-stage">
-        <MediaPlayer
-          key={session.source_session_id}
-          source={source}
-          startPosition={sourceStartPosition}
-          selectedAudio={selectedAudio}
-          selectedSubtitles={subtitleSelection}
-          qualityHeight={session.choices.selected_quality_height}
-          maxHeight={session.choices.max_compatible_height}
+  return <div className="orbis-player-route">
+    <PlayerOverlay video={videoNode} identity={identity} title={routeState?.title?.split(" · ")[0] ?? catalogTitle ?? (identity.mediaType === "movie" ? t("Movie") : t("Series"))}
+      session={session} currentTime={currentTime} duration={duration} busy={failoverBusy}
+      lifecycle={lifecycle} selectedAudio={selectedAudio} audioOutcome={audioOutcome} selectedSubtitle={selectedSubtitle} subtitlesEnabled={subtitleSelectionValue.enabled}
+      onBack={back}
+      onSeekIntent={position => { pendingSeekRef.current = position; latestRef.current.currentTime = position; setCurrentTime(position); }}
+      onSeekComplete={() => { pendingSeekRef.current = null; }}
+      onQuality={height => void changeChoice({ preferred_quality_height: height })}
+      onAudio={track => { setAudioOutcome(null); setSelectedAudio(track); setAudioLanguage(track.language); setAudioKind(track.kind); }}
+      onSubtitle={track => { setSubtitlesEnabled(Boolean(track)); setSelectedSubtitle(track); setSubtitleLanguage(track?.language ?? null); }}
+      onEpisode={(season, episode) => void chooseEpisode(season, episode)}
+      onPrevious={() => void moveEpisode("previous")} onNext={() => void moveEpisode("next")}
+      onAutoplay={enabled => void updateAutoplay(enabled)}
+      alerts={<>
+        {nextCountdown !== null ? <div className="orbis-player-next-prompt" role="status"><span>{t("Next episode")} · {nextCountdown}</span><button onClick={() => { setNextCountdown(null); void moveEpisode("next"); }}>{t("Play now")}</button><button onClick={() => setNextCountdown(null)}>{t("Cancel")}</button></div> : null}
+        {error ? <div className="orbis-player-notice" role="alert"><span>{t("Playback could not continue. Please retry.")}</span><button onClick={() => void requestReplacement("recover", undefined, { category: "other", resource_type: "unknown", http_status: null, code: null })}>{t("Try again")}</button><button onClick={() => setError(null)} aria-label={t("Dismiss")}>×</button></div> : null}
+        {message && !error && failoverBusy ? <div className="orbis-player-notice" role="status">{t("Restoring playback…")}</div> : null}
+      </>}
+      watchPanel={<GlobalRoomControl embedded currentContent={{ media_type: identity.mediaType, tmdb_id: identity.tmdbId, season_number: identity.seasonNumber ?? null, episode_number: identity.episodeNumber ?? null }} />}>
+      <section className="playback-stage" aria-label={t("Video")}>
+        <MediaPlayer key={session.source_session_id} videoElement={videoElement} source={source} startPosition={sourceStartPosition}
+          selectedAudio={selectedAudio} originalLanguage={originalLanguage} locale={activeProfile?.locale} selectedSubtitles={subtitleSelectionValue}
+          qualityHeight={session.choices.selected_quality_height} qualityChoices={session.choices.qualities} maxHeight={session.choices.max_compatible_height}
+          onAudioOutcome={setAudioOutcome}
           autoPlay={!roomActive}
           onPlay={() => {
             presenceState.current = "playing";
-            if (session.client_session_id) void heartbeatClient(session.client_session_id, "playing", session.source_session_id, latestRef.current.currentTime).then(setClientInfo).catch(reason => setError(String(reason)));
+            if (roomActive && watch.room?.state !== "playing") watch.send("play", { position: latestRef.current.currentTime });
+            if (session.client_session_id) void heartbeatClient(session.client_session_id, "playing", session.source_session_id, latestRef.current.currentTime).then(setClientInfo).catch(() => setError(t("Playback session could not be updated.")));
           }}
           onProgress={(position, nextDuration) => {
-            setCurrentTime(position);
-            setDuration(nextDuration);
-            if (
-              position >= 5 &&
-              (
-                nextDuration === null ||
-                nextDuration - position > 10
-              )
-            ) {
-              completedRef.current = false;
-            }
+            if (pendingSeekRef.current !== null && Math.abs(position - pendingSeekRef.current) > 1) return;
+            latestRef.current.currentTime = position;
+            setCurrentTime(Math.floor(position)); setDuration(nextDuration);
+            if (position >= 5 && (nextDuration === null || nextDuration - position > 10)) completedRef.current = false;
           }}
           onPause={() => {
             presenceState.current = "paused"; void persist();
+            if (roomActive && watch.room?.state !== "paused") watch.send("pause", { position: latestRef.current.currentTime });
             if (session.client_session_id && !completedRef.current && !transitionRef.current) void heartbeatClient(session.client_session_id, "paused", session.source_session_id, latestRef.current.currentTime).then(setClientInfo).catch(() => {});
           }}
           onEnded={() => {
@@ -733,223 +736,13 @@ export default function PlaybackPage() {
             completedRef.current = true;
             void (async () => {
               await persist(true);
-              if (generation !== routeGeneration.current) return;
-              if (roomActive) return;
-              if (identity?.mediaType !== "tv" || activeProfile?.id !== identity.profileId) return;
-              try {
-                const navigation = await getEpisodeLifecycle(identity);
-                if (navigation.autoplay_allowed && generation === routeGeneration.current) await moveEpisode("next");
-              } catch { /* Missing next metadata does not invalidate completion. */ }
+              if (generation !== routeGeneration.current || identity.mediaType !== "tv" || activeProfile?.id !== identity.profileId) return;
+              try { const navigation = await getEpisodeLifecycle(identity); if (navigation.autoplay_allowed && navigation.next?.aired && generation === routeGeneration.current) setNextCountdown(8); }
+              catch { /* Completion remains valid when next metadata is absent. */ }
             })();
           }}
-          onError={(playerError, failure) => {
-            void requestReplacement("recover", playerError, failure);
-          }}
-        />
+          onError={(playerError, failure) => { void requestReplacement("recover", playerError, failure); }} />
       </section>
-
-      {session.client_session_id ? <WatchTogetherPanel
-        identity={identity} clientId={session.client_session_id} sourceId={session.source_session_id}
-        onActive={setRoomActive} beforeTransition={() => persist()}
-        onResolved={next => {
-          if (next.state.tmdb_id === identity.tmdbId && next.state.media_type === identity.mediaType && next.state.season_number === (identity.seasonNumber ?? null) && next.state.episode_number === (identity.episodeNumber ?? null)) {
-            applySession(next);
-          } else {
-            readyRef.current = false;
-            const target = next.state.media_type === "movie" ? `movie/${next.state.tmdb_id}` : `tv/${next.state.tmdb_id}/season/${next.state.season_number}/episode/${next.state.episode_number}`;
-            navigate(`/watch/${identity.profileId}/${target}`, { state: { playbackSession: next, returnTo } });
-          }
-        }} /> : null}
-      {lifecycle && !roomActive ? <section className="panel">
-        <h2>Episode lifecycle</h2>
-        <p>{lifecycle.is_final_episode ? "Final episode" : lifecycle.season_transition ? "Next episode starts a new season" : lifecycle.next_status}</p>
-        <button disabled={failoverBusy || !lifecycle.previous?.aired} onClick={() => void moveEpisode("previous")}>Previous episode</button>
-        <button disabled={failoverBusy || !lifecycle.next?.aired} onClick={() => void moveEpisode("next")}>Next episode</button>
-        <button disabled={failoverBusy || !lifecycle.next?.aired} onClick={async () => {
-          const generation = routeGeneration.current;
-          setFailoverBusy(true);
-          try { const prepared = await prepareNextEpisode(identity); if (generation === routeGeneration.current) { preparedRef.current = prepared.source_session_id; setMessage("Next episode prepared; viewing history unchanged."); } }
-          catch (reason) { if (generation === routeGeneration.current) setError(String(reason)); }
-          finally { if (generation === routeGeneration.current) setFailoverBusy(false); }
-        }}>Prepare Up Next</button>
-        <label><input type="checkbox" checked={lifecycle.autoplay_next} onChange={async event => {
-          try { await request(`/api/profiles/${identity.profileId}`, { method: "PATCH", body: JSON.stringify({ autoplay_next_episode: event.target.checked }) }); await reloadProfile(); setLifecycle(await getEpisodeLifecycle(identity)); }
-          catch (reason) { setError(String(reason)); }
-        }} /> Autoplay next episode</label>
-        <details><summary>Optional intro / recap / credits markers</summary><pre>{JSON.stringify(lifecycle.markers, null, 2)}</pre></details>
-      </section> : null}
-      <details className="panel"><summary>Client capabilities and current session</summary>
-        <label>Practical resolution limit <select value={heightLimit} onChange={event => setHeightLimit(Number(event.target.value))}><option value={720}>720p</option><option value={1080}>1080p</option><option value={2160}>2160p</option></select></label>
-        <button disabled={failoverBusy} onClick={async () => {
-          if (!clientInfo) return;
-          await persist(); setFailoverBusy(true);
-          try {
-            sessionStorage.setItem("orbis.client-height", String(heightLimit));
-            await heartbeatClient(clientInfo.id, presenceState.current, session.source_session_id, currentTime, detectCapabilities());
-            applySession(await resolvePlayback(identity));
-          } catch (reason) { setError(String(reason)); }
-          finally { setFailoverBusy(false); }
-        }}>Apply capabilities</button>
-        <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(clientInfo, null, 2)}</pre>
-        <p>Quality outcome: {session.choices.quality_outcome ?? "auto"}</p>
-      </details>
-      <section className="playback-controls panel">
-        <label>Provider
-          <select disabled={failoverBusy} value={session.state.preferred_provider_id ?? ""}
-            onChange={(event) => void changeChoice({ preferred_provider_id: event.target.value || null, preferred_source_id: null, preferred_source_provider_id: null })}>
-            <option value="">Auto</option>
-            {session.state.preferred_provider_id && !session.choices.providers.some(p => p.provider_id === session.state.preferred_provider_id) && (
-              <option value={session.state.preferred_provider_id}>{session.state.preferred_provider_id} (unavailable)</option>
-            )}
-            {session.choices.providers.map(p => <option key={p.provider_id} value={p.provider_id}>{p.label}</option>)}
-          </select>
-        </label>
-        <label>Source
-          <select disabled={failoverBusy} value={session.state.preferred_source_id ?? ""}
-            onChange={(event) => void changeChoice({ preferred_source_id: event.target.value || null, preferred_source_provider_id: event.target.value ? source.provider_id : null })}>
-            <option value="">Auto</option>
-            {session.state.preferred_source_id && (session.state.preferred_source_provider_id !== source.provider_id || !session.choices.sources.some(s => s.source_id === session.state.preferred_source_id)) && (
-              <option value={session.state.preferred_source_id}>{session.state.preferred_source_id} (unavailable)</option>
-            )}
-            {session.choices.sources.filter(s => session.state.preferred_source_provider_id === source.provider_id || s.source_id !== session.state.preferred_source_id).map(s => <option key={s.source_id} value={s.source_id}>{s.label}</option>)}
-          </select>
-          <small>Current: {source.source_label ?? source.source_id ?? "Default"}</small>
-        </label>
-        <label>Quality
-          <select disabled={failoverBusy} value={session.state.preferred_quality_height ?? ""}
-            onChange={(event) => void changeChoice({ preferred_quality_height: event.target.value ? Number(event.target.value) : null })}>
-            <option value="">Auto</option>
-            {session.state.preferred_quality_height && !session.choices.qualities.some(q => q.height === session.state.preferred_quality_height) && (
-              <option value={session.state.preferred_quality_height}>{session.state.preferred_quality_height}p (unavailable)</option>
-            )}
-            {session.choices.qualities.map(q => <option key={q.height} value={q.height}>{q.label}</option>)}
-          </select>
-          <small>Applied: {session.choices.selected_quality_height ? `${session.choices.selected_quality_height}p` : "Auto"}</small>
-        </label>
-        <div>
-          <span className="control-label">Position</span>
-          <strong>
-            {formatTime(currentTime)}
-            {duration !== null
-              ? ` / ${formatTime(duration)}`
-              : ""}
-          </strong>
-        </div>
-
-        <label>
-          <span className="control-label">Audio</span>
-          <select
-            value={
-              selectedAudio
-                ? source.audio_tracks.findIndex(
-                  (track) => sameAudioTrack(
-                    track,
-                    selectedAudio,
-                  ),
-                )
-                : -1
-            }
-            disabled={source.audio_tracks.length === 0}
-            onChange={(event) => {
-              const track = source.audio_tracks[
-                Number(event.target.value)
-              ] ?? null;
-              setSelectedAudio(track);
-              setAudioLanguage(track?.language ?? null);
-              setAudioKind(track?.kind ?? null);
-            }}
-          >
-            {source.audio_tracks.length === 0 && (
-              <option value={-1}>Provider default</option>
-            )}
-            {source.audio_tracks.map((track, index) => (
-              <option
-                key={track.track_id ?? `${track.language}-${index}`}
-                value={index}
-              >
-                {track.label ?? track.language ?? "Unknown"}
-                {` · ${track.kind}`}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="subtitle-toggle">
-          <input
-            type="checkbox"
-            checked={subtitleSelection.enabled}
-            disabled={!subtitleSelection.can_disable}
-            onChange={(event) => {
-              setSubtitlesEnabled(event.target.checked);
-              if (
-                event.target.checked &&
-                !selectedSubtitle
-              ) {
-                const first = selectableSubtitles[0] ?? null;
-                setSelectedSubtitle(first);
-                setSubtitleLanguage(
-                  first?.language ?? null,
-                );
-              }
-            }}
-          />
-          <span>
-            {subtitleSelection.can_disable
-              ? "Subtitles"
-              : "Burned-in subtitles"}
-          </span>
-        </label>
-
-        <label>
-          <span className="control-label">
-            Subtitle language
-          </span>
-          <select
-            value={
-              selectedSubtitle
-                ? selectableSubtitles.findIndex(
-                  (track) => sameSubtitleTrack(
-                    track,
-                    selectedSubtitle,
-                  ),
-                )
-                : -1
-            }
-            disabled={
-              !subtitlesEnabled ||
-              selectableSubtitles.length === 0
-            }
-            onChange={(event) => {
-              const track = selectableSubtitles[
-                Number(event.target.value)
-              ] ?? null;
-              setSelectedSubtitle(track);
-              setSubtitleLanguage(track?.language ?? null);
-            }}
-          >
-            {selectableSubtitles.length === 0 && (
-              <option value={-1}>Unavailable</option>
-            )}
-            {selectableSubtitles.map((track, index) => (
-              <option
-                key={track.track_id ?? `${track.language}-${index}`}
-                value={index}
-              >
-                {track.label ?? track.language ?? "Unknown"}
-                {` · ${track.kind}`}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <button
-          className="button secondary"
-          disabled={failoverBusy}
-          onClick={() => void requestReplacement("failover")}
-        >
-          {failoverBusy ? "Switching…" : "Try next provider"}
-        </button>
-      </section>
-    </main>
-  );
+    </PlayerOverlay>
+  </div>;
 }

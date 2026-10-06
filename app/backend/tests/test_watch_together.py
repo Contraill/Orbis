@@ -6,7 +6,7 @@ from sqlalchemy import select,func
 from starlette.websockets import WebSocketDisconnect
 from test_playback_hardening import HardeningTestCase,SequencedProvider,source
 from watch_together.domain import Rooms,Policy,Content,Event,RoomError,rooms
-from api.watch_together import connections
+from api.watch_together import connections, failed_joins
 from db.models.profile import Profile
 from db.models.foundation import ViewingProgress,ViewingDay
 from db.models.playback import PlaybackState
@@ -29,13 +29,12 @@ class DomainTests(unittest.TestCase):
     def event(self,type,**kw):
         return Event(type=type,revision=self.room.revision,**kw)
 
-    def test_duplicate_join_authority_and_revision(self):
+    def test_duplicate_join_peer_authority_and_revision(self):
         revision = self.room.revision
         self.assertIs(self.store.join(self.room,self.b,'B'),self.guest)
         self.assertEqual(self.room.revision,revision)
-        with self.assertRaisesRegex(RoomError,'host_only'):
-            self.store.apply(self.room,self.guest,self.event('play'))
-        self.store.apply(self.room,self.host,self.event('play'))
+        self.store.apply(self.room,self.guest,self.event('play'))
+        self.store.apply(self.room,self.host,self.event('pause'))
         with self.assertRaisesRegex(RoomError,'stale_revision'):
             self.store.apply(self.room,self.host,Event(type='pause',revision=revision))
 
@@ -58,23 +57,25 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(self.store.correction(self.room,99.9,False)['action'],'seek')
         self.assertEqual(self.store.correction(self.room,100.,False)['action'],'none')
 
-    def test_disconnect_reconnect_grace_then_deterministic_promotion(self):
+    def test_disconnect_reconnect_grace_preserves_peer_room(self):
         original = self.host.connection
         self.store.disconnect(self.room,self.host,original)
-        self.now+=44; self.store.cleanup()
+        self.now+=59; self.store.cleanup()
         self.assertEqual(self.room.host,self.host.id)
         self.store.connect(self.room,self.host)
         self.store.disconnect(self.room,self.host,original)  # obsolete socket cannot disconnect replacement
         self.assertIsNotNone(self.host.connection)
-        self.guest.last_seen = self.now
         self.store.disconnect(self.room,self.host,self.host.connection)
-        self.now+=46; self.store.cleanup()
-        self.assertEqual(self.room.host,self.guest.id)
+        self.now+=30
+        self.store.apply(self.room,self.guest,self.event('heartbeat'))
+        self.now+=31; self.store.cleanup()
         self.assertEqual(self.room.status,'open')
+        self.assertIn(self.guest.id,self.room.participants)
+        self.assertNotIn(self.host.id,self.room.participants)
 
     def test_stale_cleanup_expiration_and_bounded_storage(self):
-        self.now+=91; self.store.cleanup()
-        self.assertTrue(all(p.connection is None for p in self.room.participants.values()))
+        self.now+=61; self.store.cleanup()
+        self.assertEqual(self.room.status,'closed')
         self.now+=46; self.store.cleanup()
         self.assertEqual(self.room.status,'closed')
         self.now+=61; self.store.cleanup()
@@ -86,29 +87,74 @@ class DomainTests(unittest.TestCase):
         self.now+=1801; limited.cleanup()
         self.assertEqual(r.status,'closed')
 
-    def test_leave_host_promotes_then_last_leave_closes(self):
+    def test_lobby_heartbeat_and_unified_sixty_second_grace(self):
+        lobby,creator=self.store.create(SimpleNamespace(id='c',profile_id=3),'C',None)
+        self.store.connect(lobby,creator)
+        for _ in range(4):
+            self.now+=20
+            before=lobby.revision
+            self.store.apply(lobby,creator,Event(type='heartbeat',revision=lobby.revision))
+            self.store.cleanup()
+            self.assertEqual(lobby.status,'open')
+            self.assertEqual(lobby.revision,before)
+        self.now+=61
+        self.store.cleanup()
+        self.assertEqual(lobby.status,'closed')
+
+    def test_creator_exit_preserves_other_participant(self):
         self.store.leave(self.room,self.host)
+        self.assertEqual(self.room.status,'open')
         self.assertEqual(self.room.host,self.guest.id)
+        self.store.apply(self.room,self.guest,self.event('seek',position=19))
         self.store.leave(self.room,self.guest)
         self.assertEqual(self.room.status,'closed')
 
-    def test_host_disconnect_without_connected_successor_closes_after_grace(self):
+    def test_room_closes_when_every_peer_disconnects_past_grace(self):
         self.store.disconnect(self.room,self.guest,self.guest.connection)
         self.store.disconnect(self.room,self.host,self.host.connection)
-        self.now+=44; self.store.cleanup()
+        self.now+=59; self.store.cleanup()
         self.assertEqual(self.room.status,'open')
         self.now+=2; self.store.cleanup()
         self.assertEqual(self.room.status,'closed')
 
-    def test_stale_heartbeat_does_not_shorten_host_disconnect_grace(self):
+    def test_stale_heartbeat_does_not_shorten_peer_disconnect_grace(self):
         self.now+=80
         self.store.disconnect(self.room,self.host,self.host.connection)
         self.guest.last_seen=self.now
         self.now+=20; self.store.cleanup()
-        self.assertEqual(self.room.host,self.host.id)
+        self.assertIn(self.host.id,self.room.participants)
         self.assertEqual(self.room.status,'open')
-        self.now+=26; self.store.cleanup()
-        self.assertEqual(self.room.host,self.guest.id)
+        self.store.apply(self.room,self.guest,self.event('heartbeat'))
+        self.now+=41; self.store.cleanup()
+        self.assertEqual(self.room.status,'open')
+        self.assertNotIn(self.host.id,self.room.participants)
+
+    def test_lobby_code_and_peer_transition(self):
+        lobby, creator = self.store.create(SimpleNamespace(id='c',profile_id=3),'C',None)
+        self.assertRegex(lobby.join_code,r'^\d{6}$')
+        self.assertIs(self.store.by_code(lobby.join_code),lobby)
+        self.assertIsNone(self.store.snapshot(lobby)['content'])
+        member = self.store.join(lobby,SimpleNamespace(id='d',profile_id=4),'D')
+        self.store.apply(lobby,member,Event(type='content',revision=lobby.revision,content=Content(media_type='movie',tmdb_id=2)))
+        self.assertEqual(lobby.content.key,'movie:2')
+        self.store.leave(lobby,creator)
+        self.assertEqual(lobby.status,'open')
+        self.store.leave(lobby,member)
+        self.assertEqual(lobby.status,'closed')
+        with self.assertRaisesRegex(RoomError,'invalid_join_code'):
+            self.store.by_code(lobby.join_code)
+
+    def test_join_code_collision_retry_and_late_join(self):
+        with patch('watch_together.domain.randbelow',side_effect=[1,1,2]):
+            first,_=self.store.create(SimpleNamespace(id='c',profile_id=3),'C',None)
+            second,_=self.store.create(SimpleNamespace(id='d',profile_id=4),'D',Content(media_type='tv',tmdb_id=7,season_number=1,episode_number=2))
+        self.assertEqual((first.join_code,second.join_code),('100001','100002'))
+        late=self.store.join(second,SimpleNamespace(id='e',profile_id=5),'E')
+        self.assertEqual(self.store.snapshot(second)['content']['episode_number'],2)
+        self.assertFalse(late.ready)
+        for bad in ('12345','1234567','12345a','１２３４５６','100 002'):
+            with self.assertRaisesRegex(RoomError,'invalid_join_code'):
+                self.store.by_code(bad)
 
     def test_participant_capacity_and_preferences_do_not_change_timeline(self):
         self.store.policy=Policy(max_participants=2)
@@ -144,8 +190,11 @@ class RoomAPITests(HardeningTestCase):
     def setUp(self):
         super().setUp()
         rooms.rooms.clear(); connections.clear()
+        rooms.codes.clear(); failed_joins.clear()
         self.addCleanup(rooms.rooms.clear)
         self.addCleanup(connections.clear)
+        self.addCleanup(rooms.codes.clear)
+        self.addCleanup(failed_joins.clear)
         self.other=Profile(name='Second')
         self.db.add(self.other); self.db.commit()
         self.a=self.register(self.profile.id)
@@ -185,6 +234,26 @@ class RoomAPITests(HardeningTestCase):
         self.client.cookies.clear()
         self.assertEqual(self.join(room).status_code,404)
 
+    def test_public_code_lobby_transition_exit_and_rate_limit(self):
+        created=self.client.post('/api/watch-together/rooms',headers={'X-Orbis-Session':self.a},json={})
+        self.assertEqual(created.status_code,201,created.text)
+        lobby=created.json(); code=lobby['join_code']; room_id=lobby['room_id']
+        self.assertRegex(code,r'^\d{6}$')
+        self.assertIsNone(lobby['content'])
+        joined=self.client.post('/api/watch-together/join',headers={'X-Orbis-Session':self.b},json={'join_code':code})
+        self.assertEqual(joined.status_code,200,joined.text)
+        target={'media_type':'tv','tmdb_id':10,'season_number':1,'episode_number':1}
+        transition=self.client.post(f'/api/watch-together/rooms/{room_id}/transition',headers={'X-Orbis-Session':self.b},json={'revision':lobby['revision']+1,'content':target})
+        self.assertEqual(transition.status_code,200,transition.text)
+        self.assertEqual(transition.json()['content'],target)
+        self.assertEqual(self.client.post(f'/api/watch-together/rooms/{room_id}/exit',headers={'X-Orbis-Session':self.a}).json()['status'],'left')
+        self.assertEqual(self.client.get(f'/api/watch-together/rooms/{room_id}',headers={'X-Orbis-Session':self.b}).status_code,200)
+        self.assertEqual(self.client.post(f'/api/watch-together/rooms/{room_id}/exit',headers={'X-Orbis-Session':self.b}).json()['status'],'closed')
+        self.assertEqual(self.client.post('/api/watch-together/join',headers={'X-Orbis-Session':self.b},json={'join_code':code}).status_code,404)
+        for _ in range(4):
+            self.assertEqual(self.client.post('/api/watch-together/join',headers={'X-Orbis-Session':self.b},json={'join_code':'000000'}).status_code,404)
+        self.assertEqual(self.client.post('/api/watch-together/join',headers={'X-Orbis-Session':self.b},json={'join_code':'000000'}).status_code,429)
+
     def test_two_clients_play_pause_seek_reconnect_and_security(self):
         room=self.create()['room_id']; self.join(room)
         path=f'/api/watch-together/rooms/{room}/ws'
@@ -194,12 +263,10 @@ class RoomAPITests(HardeningTestCase):
                 with self.client.websocket_connect(path) as guest:
                     state=self.open(guest,self.b)
                     self.receive(host,'state',state['revision'])
-                    guest.send_json({'type':'play','revision':state['revision']})
-                    self.assertEqual(self.receive(guest,'error')['code'],'host_only')
-                    host.send_json({'type':'play','revision':state['revision'],'position':100.})
+                    guest.send_json({'type':'play','revision':state['revision'],'position':100.})
                     playing=self.receive(host,'state',state['revision']+1)
                     self.assertEqual(self.receive(guest,'state',playing['revision'])['state'],'playing')
-                    host.send_json({'type':'seek','revision':playing['revision'],'position':200.})
+                    guest.send_json({'type':'seek','revision':playing['revision'],'position':200.})
                     seek=self.receive(guest,'state',playing['revision']+1)
                     self.assertAlmostEqual(seek['position'],200,delta=1)
                     host.send_json({'type':'pause','revision':seek['revision']})
@@ -213,8 +280,7 @@ class RoomAPITests(HardeningTestCase):
                     restored=self.open(rejoined,self.b)
                     self.assertEqual(restored['state'],'paused')
                     self.assertAlmostEqual(restored['position'],paused['position'])
-                    host.send_json({'type':'close','revision':restored['revision']})
-                    self.assertEqual(self.receive(rejoined,'state',restored['revision']+1)['status'],'closed')
+                    self.assertEqual(restored['status'],'open')
 
     def test_ws_membership_origin_and_oversize(self):
         room=self.create()['room_id']; path=f'/api/watch-together/rooms/{room}/ws'
@@ -232,8 +298,8 @@ class RoomAPITests(HardeningTestCase):
                 self.assertEqual(exc.exception.code,1009)
 
     def test_independent_sources_resolution_failure_and_history(self):
-        first=SequencedProvider('first',1,[[source('first','moly',protocol='http',quality='900p')]])
-        second=SequencedProvider('second',2,[[source('second','dbx',protocol='http',quality='720p')]])
+        first=SequencedProvider('first',1,[[source('first','source-a',protocol='http',quality='900p')]])
+        second=SequencedProvider('second',2,[[source('second','source-b',protocol='http',quality='720p')]])
         for item in self.provider_patches([first,second]): item.start(); self.addCleanup(item.stop)
         # Participant B's own existing preferences select a different provider.
         root=f'/api/playback/profiles/{self.other.id}/movie/42'

@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Response
+from contextlib import asynccontextmanager
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from api.profiles import router as profiles_router
 from api.catalog import router as catalog_router
@@ -18,8 +20,26 @@ from core.logging import install as install_logging
 install_logging()
 
 from api.watch_together import router as watch_together_router, room_lifespan
+from api.tv_webos import router as tv_webos_router
+from tv.webos.renewal import run_due as run_webos_renewals
 
-app = FastAPI(title="Orbis API", version="1.0.0", lifespan=room_lifespan)
+
+@asynccontextmanager
+async def orbis_lifespan(application):
+    async def tv_maintenance():
+        while True:
+            await asyncio.to_thread(run_webos_renewals)
+            await asyncio.sleep(24 * 60 * 60)
+
+    async with room_lifespan(application):
+        task = asyncio.create_task(tv_maintenance())
+        try:
+            yield
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+app = FastAPI(title="Orbis API", version="1.0.0", lifespan=orbis_lifespan)
 app.add_exception_handler(StarletteHTTPException,http_error)
 app.add_exception_handler(RequestValidationError,validation_error)
 
@@ -50,10 +70,13 @@ app.add_middleware(
 )
 
 @app.get("/api/health")
-async def health():
+async def health(response: Response):
+    # Local TV launchers have a file/app origin; this public, credential-free
+    # endpoint is the only cross-origin preflight they need.
+    response.headers["Access-Control-Allow-Origin"] = "*"
     return {
         "status": "ok",
-        "service": "media-app-backend",
+        "service": "orbis-backend",
         "version": "1.0.0",
         "api_version": "v1",
     }
@@ -72,6 +95,7 @@ async def incompatible_client(request, exc):
     return error_response(409,{"code":str(exc),"message":"No compatible playback source or variant is available for this client"})
 
 app.include_router(watch_together_router)
+app.include_router(tv_webos_router)
 
 from api.system import router as system_router
 app.include_router(system_router)

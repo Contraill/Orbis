@@ -20,7 +20,7 @@ from providers.schemas import (
     ProviderAttempt,
     ProviderHealthCheckReport,
 )
-from providers.source_policy import usable_sources
+from providers.source_policy import rank_sources, source_preference_fit, usable_sources
 
 
 CIRCUIT_FAILURE_THRESHOLD = 5
@@ -339,6 +339,7 @@ class ProviderManager:
         excluded_provider_ids: set[str] | None = None,
         require_healthy_source: bool = False,
         force: bool = False,
+        source_preferences: dict | None = None,
     ) -> PlaybackResolution:
         self.sync_registry(db)
 
@@ -367,6 +368,8 @@ class ProviderManager:
         excluded = excluded_provider_ids or set()
 
         attempts: list[ProviderAttempt] = []
+        fallback: PlaybackResolution | None = None
+        fallback_fit: tuple[int, int, int] | None = None
 
         for state in states:
             if state.provider_id in excluded:
@@ -483,12 +486,22 @@ class ProviderManager:
                 )
             )
 
-            return PlaybackResolution(
+            result = PlaybackResolution(
                 selected_provider_id=provider.id,
                 sources=sources,
-                attempts=attempts,
+                attempts=list(attempts),
             )
+            if not source_preferences or provider_id is not None:
+                return result
+            ranked = rank_sources(sources, **source_preferences)
+            fit, satisfied = source_preference_fit(ranked[0], **source_preferences)
+            if fallback_fit is None or fit > fallback_fit:
+                fallback, fallback_fit = result, fit
+            if satisfied:
+                return result
 
+        if fallback is not None:
+            return fallback.model_copy(update={"attempts": attempts})
         raise ResolutionFailed(attempts)
 
     async def resolve_movie(
@@ -501,6 +514,7 @@ class ProviderManager:
         excluded_provider_ids: set[str] | None = None,
         require_healthy_source: bool = False,
         force: bool = False,
+        source_preferences: dict | None = None,
     ) -> PlaybackResolution:
         return await self._resolve(
             db,
@@ -511,6 +525,7 @@ class ProviderManager:
             excluded_provider_ids=excluded_provider_ids,
             require_healthy_source=require_healthy_source,
             force=force,
+            source_preferences=source_preferences,
         )
 
     async def resolve_episode(
@@ -525,6 +540,7 @@ class ProviderManager:
         excluded_provider_ids: set[str] | None = None,
         require_healthy_source: bool = False,
         force: bool = False,
+        source_preferences: dict | None = None,
     ) -> PlaybackResolution:
         return await self._resolve(
             db,
@@ -539,6 +555,7 @@ class ProviderManager:
             excluded_provider_ids=excluded_provider_ids,
             require_healthy_source=require_healthy_source,
             force=force,
+            source_preferences=source_preferences,
         )
 
 

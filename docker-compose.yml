@@ -1,49 +1,100 @@
+name: orbis
 services:
-  backend:
-    build:
-      context: ./app/backend
-    image: media-app-backend:latest
-    env_file:
-      - .env
-    container_name: media-app-backend
-    restart: unless-stopped
-    volumes:
-      - ./data:/data
-      - ./config:/config
-      - ./cache:/cache
-      - ./logs:/logs
-    ports:
-      - "8000:8000"
-
-  frontend:
-    build:
-      context: ./app/frontend
-    image: media-app-frontend:latest
-    container_name: media-app-frontend
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "3000:80"
-
+    backend:
+        build:
+            context: ./app/backend
+            dockerfile: Dockerfile
+        cpu_shares: 90
+        command: []
+        container_name: orbis-backend
+        deploy:
+            resources:
+                limits:
+                    memory: "8449425408"
+        environment:
+            APP_ENV: production
+            APP_NAME: Orbis
+            DATABASE_URL: ${DATABASE_URL:-sqlite:////data/orbis.db}
+            TMDB_API_KEY: ${TMDB_API_KEY:?Set TMDB_API_KEY in .env}
+            TMDB_LANGUAGE: ${TMDB_LANGUAGE:-en-US}
+        env_file:
+            - ./.env
+        hostname: orbis-backend
+        image: orbis-backend:latest
+        labels:
+            icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
+        networks:
+            default: null
+        restart: unless-stopped
+        volumes:
+            - type: bind
+              source: ./data
+              target: /data
+              bind:
+                create_host_path: true
+            - type: bind
+              source: ./config
+              target: /config
+              bind:
+                create_host_path: true
+            - type: bind
+              source: ./cache
+              target: /cache
+              bind:
+                create_host_path: true
+            - type: bind
+              source: ./logs
+              target: /logs
+              bind:
+                create_host_path: true
+    frontend:
+        build:
+            context: ./app/frontend
+            dockerfile: Dockerfile
+        cpu_shares: 90
+        command: []
+        container_name: orbis-frontend
+        depends_on:
+            backend:
+                condition: service_healthy
+                required: true
+        deploy:
+            resources:
+                limits:
+                    memory: "8449425408"
+        hostname: orbis-frontend
+        image: orbis-frontend:latest
+        labels:
+            icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
+        networks:
+            default: null
+        ports:
+            - mode: ingress
+              target: 80
+              published: "3000"
+              protocol: tcp
+        restart: unless-stopped
+networks:
+    default:
+        name: orbis_default
 x-casaos:
-  architectures:
-    - arm64
-  author: Contraill
-  category: Media
-  description:
-    en_US: Self-hosted provider-agnostic media streaming platform.
-  developer: Contraill
-  hostname: ""
-  id: io.contraill.media-app
-  index: /
-  is_uncontrolled: true
-  main: frontend
-  port_map: "3000"
-  scheme: http
-  tagline:
-    en_US: Your media, one interface.
-  title:
-    custom: ""
-    en_US: Orbis
+    architectures:
+        - arm64
+    author: Contraill
+    category: Media
+    description:
+        en_US: Self-hosted provider-agnostic media streaming platform.
+    developer: Contraill
+    hostname: ""
+    icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
+    id: io.contraill.orbis
+    index: /
+    is_uncontrolled: false
+    main: frontend
+    port_map: "3000"
+    scheme: http
+    tagline:
+        en_US: Your media, one interface.
+    title:
+        custom: ""
+        en_US: Orbis

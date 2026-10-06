@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
 } from "react";
@@ -11,34 +12,21 @@ import type {
   PlaybackFailure,
   SubtitleSelection,
 } from "../types";
+import { activeAudioLabel, audioMatches, chooseManifestAudio } from "./audioMatch";
 
 
 type ShakaPlayer = shaka.Player;
 
-const SHAKA_ERROR_CATEGORIES: Record<number, string> = {
-  1: "network",
-  2: "text",
-  3: "media",
-  4: "manifest",
-  5: "streaming",
-  6: "DRM",
-  7: "player",
-  8: "cast",
-  9: "storage",
-  10: "ads",
-};
-
-const SHAKA_ERROR_SEVERITIES: Record<number, string> = {
-  1: "recoverable",
-  2: "critical",
-};
-
 interface MediaPlayerProps {
+  videoElement?: (video: HTMLVideoElement | null) => void;
   source: PlaybackSource;
   startPosition: number;
   selectedAudio: AudioTrack | null;
+  originalLanguage?: string | null;
+  locale?: string;
   selectedSubtitles: SubtitleSelection;
   qualityHeight: number | null;
+  qualityChoices?: { height: number; encoded_variants?: { width: number; height: number }[] }[];
   maxHeight?: number | null;
   autoPlay?: boolean;
   onPlay?: () => void;
@@ -49,6 +37,7 @@ interface MediaPlayerProps {
   onPause: () => void;
   onEnded: () => void;
   onError: (message: string, failure: PlaybackFailure) => void;
+  onAudioOutcome?: (outcome: { matched: boolean; activeLabel: string | null }) => void;
 }
 
 
@@ -83,73 +72,6 @@ function textMimeType(format: string | null) {
 }
 
 
-function diagnosticValue(value: unknown): string {
-  if (typeof value === "string") {
-    try {
-      const url = new URL(value);
-      if (url.protocol === "http:" || url.protocol === "https:") {
-        return `${url.origin}${url.pathname}`;
-      }
-    } catch {
-      // The diagnostic value is not a URL.
-    }
-    return value.length > 160
-      ? `${value.slice(0, 157)}…`
-      : value;
-  }
-  if (
-    value === null ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return String(value);
-  }
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) {
-    return `[${value.slice(0, 4).map(diagnosticValue).join(", ")}]`;
-  }
-  return Object.prototype.toString.call(value);
-}
-
-
-function playbackErrorMessage(error: unknown) {
-  if (error && typeof error === "object") {
-    const candidate = error as {
-      severity?: unknown;
-      category?: unknown;
-      code?: unknown;
-      data?: unknown;
-      message?: unknown;
-    };
-    if (typeof candidate.code === "number") {
-      const category = typeof candidate.category === "number"
-        ? SHAKA_ERROR_CATEGORIES[candidate.category] ??
-          `category ${candidate.category}`
-        : "unknown-category";
-      const severity = typeof candidate.severity === "number"
-        ? SHAKA_ERROR_SEVERITIES[candidate.severity] ??
-          `severity ${candidate.severity}`
-        : "unknown-severity";
-      const data = Array.isArray(candidate.data)
-        ? candidate.data.slice(0, 5).map(
-          (value, index) => `${index}=${diagnosticValue(value)}`,
-        )
-        : [];
-      return (
-        `Shaka ${category} error ${candidate.code} ` +
-        `(${severity}${data.length ? `; ${data.join(", ")}` : ""})`
-      );
-    }
-    if (typeof candidate.message === "string") {
-      return candidate.message;
-    }
-  }
-  return error instanceof Error
-    ? error.message
-    : "Playback source failed";
-}
-
-
 function playbackFailure(error: unknown): PlaybackFailure {
   const value = (error ?? {}) as { category?: number; code?: number; data?: unknown[] };
   const data = value.data ?? [];
@@ -169,38 +91,40 @@ function playbackFailure(error: unknown): PlaybackFailure {
 function applySelections(
   player: ShakaPlayer,
   selectedAudio: AudioTrack | null,
+  originalLanguage: string | null,
   selectedSubtitles: SubtitleSelection,
   qualityHeight: number | null,
+  qualityChoices: { height: number; encoded_variants?: { width: number; height: number }[] }[],
   maxHeight: number | null = null,
 ) {
-  // Restrict ABR by logical height, not a volatile Shaka variant ID.
-  // Keep the master URL and networking/recovery hooks intact.
-  const available = player.getVariantTracks().some(track => track.height === qualityHeight);
-  const height = available ? qualityHeight : null;
+  const variants = player.getVariantTracks();
+  const choice = qualityHeight === null ? undefined : qualityChoices.find(item => item.height === qualityHeight);
+  const dimensions = choice?.encoded_variants ?? [];
+  const inClass = (track: shaka.extern.Track) => dimensions.length
+    ? dimensions.some(size => track.height === size.height && (track.width === size.width || track.width === null))
+    : track.height === qualityHeight;
+  const classVariants = choice ? variants.filter(inClass) : [];
+  const heights = classVariants.map(track => track.height).filter((height): height is number => height !== null);
+  const minimum = heights.length ? Math.min(...heights) : 0;
+  const maximum = heights.length ? Math.min(Math.max(...heights), maxHeight ?? Infinity) : maxHeight ?? Infinity;
+  // A consumer 1080p class may contain 1920x800 and 1920x1080 encodes.
+  // Restrict Shaka by actual encoded dimensions, never by the class label.
   player.configure({ abr: { enabled: true, restrictions: {
-    minHeight: height ?? 0, maxHeight: height ?? maxHeight ?? Infinity,
+    minHeight: minimum, maxHeight: maximum,
   } } });
-  if (height !== null) {
-    const variants = player.getVariantTracks();
+  if (classVariants.length) {
     const active = variants.find(track => track.active);
-    const candidate = variants.find(track => track.height === height && track.language === active?.language)
-      ?? variants.find(track => track.height === height);
-    if (candidate && active?.height !== height) player.selectVariantTrack(candidate, true);
+    const candidate = [...classVariants].sort((a, b) => Number(b.language === active?.language) - Number(a.language === active?.language)
+      || b.bandwidth - a.bandwidth || a.id - b.id)[0];
+    if (candidate && active?.id !== candidate.id) player.selectVariantTrack(candidate, true);
   }
   if (selectedAudio) {
-    const variants = player.getVariantTracks().filter(track => height === null || track.height === height);
-    const trackId = Number(selectedAudio.track_id);
-    const audioById = selectedAudio.track_id !== null &&
-      Number.isFinite(trackId)
-      ? variants.find((track) => track.id === trackId)
-      : undefined;
-    const audio = audioById ?? variants.find((track) =>
-      normalizedLanguage(track.language) ===
-      normalizedLanguage(selectedAudio.language),
-    );
-
-    if (audio) {
-      player.selectVariantTrack(audio, true);
+    const audio = chooseManifestAudio(classVariants.length ? classVariants : variants, selectedAudio, originalLanguage);
+    if (audio && !audio.active) {
+      const rendition = player.getAudioTracks().find(track =>
+        track.label === audio.label && track.language === (audio.audioLanguage || audio.language));
+      if (rendition) player.selectAudioTrack(rendition, 2);
+      else player.selectVariantTrack(audio, true);
     }
   }
 
@@ -225,11 +149,15 @@ function applySelections(
 
 
 export default function MediaPlayer({
+  videoElement,
   source,
   startPosition,
   selectedAudio,
+  originalLanguage = null,
+  locale = "en-US",
   selectedSubtitles,
   qualityHeight,
+  qualityChoices = [],
   maxHeight = null,
   autoPlay = true,
   onPlay,
@@ -237,9 +165,25 @@ export default function MediaPlayer({
   onPause,
   onEnded,
   onError,
+  onAudioOutcome,
 }: MediaPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoElementRef = useRef(videoElement);
+  videoElementRef.current = videoElement;
+  const attachVideo = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    videoElementRef.current?.(node);
+  }, []);
   const playerRef = useRef<ShakaPlayer | null>(null);
+  const audioRef = useRef({ selectedAudio, originalLanguage, locale, onAudioOutcome });
+  audioRef.current = { selectedAudio, originalLanguage, locale, onAudioOutcome };
+  const qualityChoicesRef = useRef(qualityChoices);
+  qualityChoicesRef.current = qualityChoices;
+  const reportAudio = (player: ShakaPlayer) => {
+    const active = player.getVariantTracks().find(track => track.active);
+    const selected = audioRef.current.selectedAudio;
+    audioRef.current.onAudioOutcome?.({ matched: selected ? audioMatches(active, selected, audioRef.current.originalLanguage) : true, activeLabel: activeAudioLabel(active, audioRef.current.originalLanguage, audioRef.current.locale) });
+  };
   const callbacksRef = useRef({
     onProgress,
     onPause,
@@ -260,6 +204,50 @@ export default function MediaPlayer({
 
   useEffect(() => {
     const video = videoRef.current;
+    if (!video) return;
+    const tracks = video.textTracks;
+    const observed = new Set<TextTrack>();
+    const liftCues = () => {
+      // Native and Shaka-created WebVTT cues otherwise sit underneath the
+      // player timeline and its controls. Keep captions inside the video,
+      // above the tallest mobile control bar, in normal and fullscreen mode.
+      for (let index = 0; index < tracks.length; index++) {
+        const cues = tracks[index].activeCues;
+        if (!cues) continue;
+        for (let cueIndex = 0; cueIndex < cues.length; cueIndex++) {
+          const cue = cues[cueIndex];
+          if (cue && "snapToLines" in cue && "line" in cue) {
+            const vttCue = cue as VTTCue;
+            if (vttCue.snapToLines || vttCue.line !== 68) {
+              vttCue.snapToLines = false;
+              vttCue.line = 68;
+            }
+          }
+        }
+      }
+    };
+    const attach = () => {
+      for (let index = 0; index < tracks.length; index++) {
+        const track = tracks[index];
+        if (!observed.has(track)) {
+          track.addEventListener("cuechange", liftCues);
+          observed.add(track);
+        }
+      }
+      liftCues();
+    };
+    tracks.addEventListener("addtrack", attach);
+    video.addEventListener("timeupdate", liftCues);
+    attach();
+    return () => {
+      tracks.removeEventListener("addtrack", attach);
+      video.removeEventListener("timeupdate", liftCues);
+      for (const track of observed) track.removeEventListener("cuechange", liftCues);
+    };
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
 
     if (!video) {
       return;
@@ -273,8 +261,8 @@ export default function MediaPlayer({
       if (cancelled || errorReported) return;
       if (!terminal && (error as { severity?: number })?.severity === 1) return;
       errorReported = true;
-      console.error(playbackErrorMessage(error), error);
       const failure = playbackFailure(error);
+      console.error("Playback engine failed", { category: failure.category, resource_type: failure.resource_type, code: failure.code });
       const failedUri = (error as { data?: unknown[] })?.data?.[0];
       if (typeof failedUri === "string" && initRequests.has(failedUri)) {
         failure.resource_type = "init";
@@ -332,7 +320,10 @@ export default function MediaPlayer({
         const player = new shakaPlayer.Player();
         playerRef.current = player;
         await player.attach(video);
-        player.configure({ restrictions: { maxHeight: maxHeight ?? Infinity }, abr: { restrictions: { minHeight: qualityHeight ?? 0, maxHeight: qualityHeight ?? maxHeight ?? Infinity } } });
+        // Consumer quality is a class label; a 1080p-class cinema encode may
+        // have only 800 physical lines. Apply its raw variant bounds after
+        // the manifest loads, never pre-filter by the class number.
+        player.configure({ restrictions: { maxHeight: maxHeight ?? Infinity }, abr: { restrictions: { minHeight: 0, maxHeight: maxHeight ?? Infinity } } });
         if (cancelled) return;
         player.getNetworkingEngine()?.registerRequestFilter((_type, request, context) => {
           if (context?.type === shakaPlayer.net.NetworkingEngine.AdvancedRequestType.INIT_SEGMENT) {
@@ -346,6 +337,8 @@ export default function MediaPlayer({
             false,
           );
         });
+        player.addEventListener("variantchanged", () => reportAudio(player));
+        player.addEventListener("adaptation", () => reportAudio(player));
 
         await player.load(
           source.url,
@@ -377,10 +370,13 @@ export default function MediaPlayer({
         applySelections(
           player,
           selectedAudio,
+          originalLanguage,
           selectedSubtitles,
           qualityHeight,
+          qualityChoicesRef.current,
           maxHeight,
         );
+        reportAudio(player);
       } catch (error) {
         reportError(error);
       }
@@ -400,12 +396,15 @@ export default function MediaPlayer({
       applySelections(
         player,
         selectedAudio,
+        originalLanguage,
         selectedSubtitles,
         qualityHeight,
+        qualityChoices,
         maxHeight,
       );
+      reportAudio(player);
     }
-  }, [selectedAudio, selectedSubtitles, qualityHeight, maxHeight]);
+  }, [selectedAudio, originalLanguage, selectedSubtitles, qualityHeight, qualityChoices, maxHeight]);
 
   const externalTrack = source.protocol === "http"
     ? selectedSubtitles.selected_track
@@ -413,9 +412,8 @@ export default function MediaPlayer({
 
   return (
     <video
-      ref={videoRef}
+      ref={attachVideo}
       className="media-player"
-      controls
       autoPlay={autoPlay}
       playsInline
       onTimeUpdate={(event) => {
