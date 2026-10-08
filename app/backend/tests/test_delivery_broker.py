@@ -9,10 +9,10 @@ from playback.delivery import DeliveryBroker, DeliveryUnavailable
 from playback.delivery_policy import ALL_RESOURCES, DeliveryPlan, DeliveryPolicy, delivery_policy
 from playback.hls import MAX_MANIFEST_BYTES, read_manifest, rewrite_manifest
 from playback.schemas import PlaybackFailure
-from playback.source_sessions import SourceSessionExpired, source_sessions
+from playback.source_sessions import SourceSessionExpired, SourceSessionNotFound, source_sessions
 from playback.upstream import UpstreamRejected, open_upstream, origin, public_address
 from providers.resolution import ResolutionBroker, ResolutionCapabilityUnavailable
-from providers.schemas import DeliveryHints
+from providers.schemas import DeliveryHints, MAX_DELIVERY_ORIGINS
 from test_playback_hardening import HardeningTestCase, SequencedProvider, source
 
 
@@ -316,6 +316,73 @@ class DeliveryTests(HardeningTestCase):
         self.assertEqual(self.requests, [])
 
 
+    def test_fragmented_cdn_manifest_registers_99_exact_origins(self):
+        origins = [f'https://cdn{i}.example' for i in range(99)]
+        item = source('generic', 'fragmented')
+        item.delivery = DeliveryHints(
+            resource_origins=origins,
+            resource_headers={name: {'Referer': 'https://embed.example/'} for name in origins},
+        )
+        entry = source_sessions.issue(
+            self.profile.id, 'movie:99', item,
+            plan=DeliveryPlan(ALL_RESOURCES), audience='fragmented-client',
+        )
+        playlist = '#EXTM3U\n' + ''.join(
+            f'#EXTINF:6,\n{origins[index % len(origins)]}/segment-{index}.ts\n'
+            for index in range(688)
+        )
+        rewritten = rewrite_manifest(entry, entry.resources['root'], item.url, playlist)
+        urls = [line for line in rewritten.splitlines() if line.startswith('/api/')]
+        self.assertEqual(len(urls), 688)
+        self.assertEqual(len(entry.resources), 689)
+        self.assertEqual(len({origin(resource.url) for resource in entry.resources.values()}) - 1, 99)
+        for index in (0, 64, 98, 687):
+            self.assertEqual(self.client.get(urls[index]).status_code, 206)
+        with self.assertRaises(UpstreamRejected):
+            source_sessions.register(entry, entry.resources['root'], 'https://unlisted.example/segment.ts', 'segment')
+        with self.assertRaises(UpstreamRejected):
+            source_sessions.register(entry, entry.resources['root'], 'http://127.0.0.1/segment.ts', 'segment')
+
+    def test_origin_policy_limit_and_expired_session_cleanup(self):
+        origins = [f'https://cdn{i}.example' for i in range(MAX_DELIVERY_ORIGINS)]
+        policy = DeliveryHints(resource_origins=origins)
+        self.assertEqual(len(policy.resource_origins), MAX_DELIVERY_ORIGINS)
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            DeliveryHints(resource_origins=origins + ['https://extra.example'])
+        with self.assertRaises(ValidationError):
+            DeliveryHints(resource_origins=origins, resource_headers={
+                **{name: {'Referer': 'https://embed.example/'} for name in origins},
+                'https://extra.example': {'Referer': 'https://embed.example/'},
+            })
+        item = source('generic', 'expired')
+        item.delivery = policy
+        old = datetime.now(timezone.utc) - timedelta(hours=7)
+        entry = source_sessions.issue(self.profile.id, 'movie:98', item, now=old)
+        source_sessions.cleanup()
+        with self.assertRaises(SourceSessionNotFound):
+            source_sessions.get(entry.session_id)
+
+    def test_multiple_renditions_can_attest_298_origins_within_bound(self):
+        origins = [f'https://cdn{i}.example' for i in range(298)]
+        item = source('generic', 'multirendition')
+        item.delivery = DeliveryHints(resource_origins=origins)
+        entry = source_sessions.issue(self.profile.id, 'movie:298', item, plan=DeliveryPlan(ALL_RESOURCES))
+        master = '#EXTM3U\n' + ''.join(
+            f'#EXT-X-STREAM-INF:BANDWIDTH={index + 1}000000\nvariant-{index}.m3u8\n'
+            for index in range(3)
+        )
+        rewrite_manifest(entry, entry.resources['root'], item.url, master)
+        children = [resource for resource in entry.resources.values() if resource.kind == 'manifest']
+        self.assertEqual(len(children), 3)
+        for child_index, child in enumerate(children):
+            subset = origins[child_index * 100:(child_index + 1) * 100]
+            playlist = '#EXTM3U\n' + ''.join(f'#EXTINF:6,\n{name}/segment.ts\n' for name in subset)
+            rewrite_manifest(entry, child, child.url, playlist)
+        self.assertEqual(len({origin(resource.url) for resource in entry.resources.values()}) - 1, 298)
+        self.assertLess(len(entry.resources), 8192)
+
+
 class PolicyAndSecurityTests(unittest.TestCase):
     def test_explicit_origin_headers_never_leak_across_redirects(self):
         requests = []
@@ -353,7 +420,7 @@ class PolicyAndSecurityTests(unittest.TestCase):
             {'resource_origins':['https://*.example']},
             {'resource_origins':['https://cdn.example/path']},
             {'resource_origins':['https://user:pass@cdn.example']},
-            {'resource_origins':[f'https://cdn{i}.example' for i in range(65)]},
+            {'resource_origins':[f'https://cdn{i}.example' for i in range(MAX_DELIVERY_ORIGINS + 1)]},
             {'resource_headers':{'https://cdn.example':{'Referer':'https://embed.example/'}}},
         ]
         for header in ('Cookie', 'Authorization', 'Host', 'Origin', 'X-Secret'):

@@ -27,6 +27,11 @@ SubtitleKind = Literal[
     "burned_in",
 ]
 
+# A multi-rendition fragmented-CDN HLS source can attest nearly 300 distinct
+# segment origins across its playlists. Keep the exact-origin policy bounded
+# per playback source with modest headroom.
+MAX_DELIVERY_ORIGINS = 320
+
 
 class AudioTrack(BaseModel):
     language: str | None = None
@@ -48,9 +53,9 @@ class SubtitleTrack(BaseModel):
 class DeliveryHints(BaseModel):
     # Normalized adapter knowledge, never application routes or platform names.
     egress: Literal["unknown", "independent", "resolution"] = "unknown"
-    resource_origins: list[str] = Field(default_factory=list, max_length=64)
+    resource_origins: list[str] = Field(default_factory=list, max_length=MAX_DELIVERY_ORIGINS)
     # Only non-secret headers, explicitly scoped by a trusted adapter. Never inherited.
-    resource_headers: dict[str, dict[str, str]] = Field(default_factory=dict, max_length=64)
+    resource_headers: dict[str, dict[str, str]] = Field(default_factory=dict, max_length=MAX_DELIVERY_ORIGINS)
 
     @model_validator(mode="after")
     def validate_resource_policy(self):
