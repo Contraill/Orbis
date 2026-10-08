@@ -7,7 +7,7 @@ from core.auth import require_owner
 from fastapi.responses import StreamingResponse
 
 from playback.hls import read_manifest, rewrite_manifest
-from playback.media_types import MISLABELED_MEDIA_TYPES, SNIFF_BYTES, media_type, probe_media_type
+from playback.media_types import MISLABELED_MEDIA_TYPES, SNIFF_BYTES, media_type, probe_media_type, sniff_prefix
 from playback.source_sessions import SourceSessionExpired, SourceSessionNotFound, source_sessions
 from playback.upstream import UpstreamRejected, new_http_client, open_upstream
 
@@ -88,7 +88,10 @@ async def proxy_playback_source(session_id: str, request: Request, resource_id: 
         headers = {name: value for name, value in upstream.headers.items() if name.lower() in UPSTREAM_RESPONSE_HEADERS}
         headers.update({"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
         content_type = headers.get("content-type", "").split(";", 1)[0].lower()
-        if content_type in {"text/html", "application/xhtml+xml", "image/svg+xml", "application/javascript", "text/javascript"}:
+        if content_type in {"application/xhtml+xml", "image/svg+xml", "application/javascript", "text/javascript"}:
+            raise UpstreamRejected("Unexpected active content")
+        html_segment = content_type == "text/html"
+        if html_segment and (resource.kind not in {"segment", "init"} or upstream.status_code not in {200, 206}):
             raise UpstreamRejected("Unexpected active content")
         if resource.kind == "key":
             headers["content-type"] = "application/octet-stream"
@@ -97,22 +100,33 @@ async def proxy_playback_source(session_id: str, request: Request, resource_id: 
             and content_type in MISLABELED_MEDIA_TYPES
             and upstream.status_code in {200, 206}):
             known = session.context.setdefault("media_types", {})
-            detected = known.get(resource.resource_id)
+            # Never trust a cached MIME for an active-content response: a CDN
+            # can replace a previously valid segment with an HTML error page.
+            detected = None if html_segment else known.get(resource.resource_id)
             if detected is None:
                 starts_at_zero = upstream.status_code == 200 or upstream.headers.get("content-range", "").startswith("bytes 0-")
                 if request.method == "GET" and starts_at_zero:
                     iterator = upstream.aiter_raw(chunk_size=16 * 1024)
                     async with asyncio.timeout(5):
-                        prefix = await anext(iterator, b"")
+                        prefix = await sniff_prefix(iterator)
                     detected = media_type(prefix)
                     if detected is None and upstream.status_code == 206 and len(prefix) < SNIFF_BYTES:
                         # A caller's short Range must not become a container-sniffing failure.
-                        detected = await probe_media_type(client, session.source, resource)
+                        detected = await probe_media_type(
+                            client, session.source, resource,
+                            required="video/mp2t" if html_segment else None,
+                        )
                     if detected is None:
                         raise UpstreamRejected("Unrecognized media container")
                 else:
-                    detected = await probe_media_type(client, session.source, resource)
-                known[resource.resource_id] = detected
+                    detected = await probe_media_type(
+                        client, session.source, resource,
+                        required="video/mp2t" if html_segment else None,
+                    )
+                if html_segment and detected != "video/mp2t":
+                    raise UpstreamRejected("Unexpected active content")
+                if not html_segment:
+                    known[resource.resource_id] = detected
             headers["content-type"] = detected
         if request.method == "HEAD":
             await upstream.aclose()

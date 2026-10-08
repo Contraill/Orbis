@@ -56,7 +56,7 @@ class DeliveryTests(HardeningTestCase):
         self.assertEqual(len(entry.resources), 1 + 3 + 3 * 1760)
 
     def test_mislabeled_ts_is_streamed_unchanged_and_head_range_are_consistent(self):
-        body = (b'\x47' + b'\x00' * 187) * 4
+        body = (b'\x47\x00\x00\x10' + b'\x00' * 184) * 7
         requests = []
         def handler(request):
             requests.append(request)
@@ -88,13 +88,13 @@ class DeliveryTests(HardeningTestCase):
             response = self.client.get(entry_url(), headers={'Range':'bytes=188-375'})
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.content, body[188:376])
-            self.assertEqual(response.headers['content-range'], 'bytes 188-375/752')
+            self.assertEqual(response.headers['content-range'], 'bytes 188-375/1316')
             self.assertEqual(response.headers['content-type'], 'video/mp2t')
-            self.assertEqual(requests[-1].headers['range'], 'bytes=0-563')
+            self.assertEqual(requests[-1].headers['range'], 'bytes=0-1315')
             response = self.client.get(entry_url(), headers={'Range':'bytes=0-63'})
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.content, body[:64])
-            self.assertEqual(response.headers['content-range'], 'bytes 0-63/752')
+            self.assertEqual(response.headers['content-range'], 'bytes 0-63/1316')
             self.assertEqual(response.headers['content-type'], 'video/mp2t')
             response = self.client.head(entry_url())
             self.assertEqual(response.headers['content-type'], 'video/mp2t')
