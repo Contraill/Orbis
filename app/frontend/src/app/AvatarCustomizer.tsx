@@ -59,7 +59,7 @@ export default function AvatarCustomizer({ seed, config, locale, onChange, onRan
           const next = { ...current, [group.field]: value } as AvatarConfig;
           const label = t((group.labels as Record<string, string>)[value]);
           return <button key={value} type="button" className={`avatar-option ${selected ? "selected" : ""}`} aria-label={`${t(group.label)}: ${label}`} aria-pressed={selected} onClick={() => onChange(next)}>
-            <ProfileAvatar seed={seed} config={next} size={48} staticPreview /><span>{label}</span>
+            <ProfileAvatar seed={seed} config={next} size={48} staticPreview={group.field !== "expression" || !selected} prominent={group.field === "expression" && selected} /><span>{label}</span>
           </button>;
         })}
       </div>
