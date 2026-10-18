@@ -1,12 +1,27 @@
 # Orbis
 
-Orbis is a self-hosted streaming interface for a small household. It combines a
-TMDB-based catalog, profile-specific discovery and playback with independently
-installed provider adapters. Each profile keeps its own language, list, progress
-and watch history. The application is designed for Raspberry Pi 5 / ARM64 and
-runs with Docker Compose.
+Orbis is a self-hosted, multi-profile media interface for a small household,
+built with FastAPI, React and Docker and designed to run on a Raspberry Pi 5
+(ARM64). Each profile keeps its own language, list, progress and watch history.
+
+Playback comes from independently installed provider adapters on top of a
+TMDB-based catalog with profile-specific discovery; Orbis itself ships no
+general streaming provider (see [Providers](#providers)).
 
 ![Orbis wordmark](app/frontend/public/brand/wordmark.png)
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/profiles.png" alt="Profile picker: Who's watching?"></td>
+    <td width="50%"><img src="docs/screenshots/home.png" alt="Home screen with featured title and New Seasons shelf"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Profile picker</sub></td>
+    <td align="center"><sub>Home</sub></td>
+  </tr>
+</table>
 
 ## What V1 includes
 
