@@ -155,4 +155,5 @@ class V1HardeningTests(HardeningTestCase):
         store.disconnect(room,host,host.connection)
         now[0]+=91
         store.cleanup()
-        self.assertNotEqual(room.host,guest.id)
+        self.assertEqual(room.status,'closed')
+        self.assertEqual(room.participants,{})

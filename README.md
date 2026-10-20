@@ -1,5 +1,7 @@
 # Orbis
 
+[![CI](https://github.com/Contraill/Orbis/actions/workflows/ci.yml/badge.svg)](https://github.com/Contraill/Orbis/actions/workflows/ci.yml)
+
 Orbis is a self-hosted, multi-profile media interface for a small household,
 built with FastAPI, React and Docker and designed to run on a Raspberry Pi 5
 (ARM64). Each profile keeps its own language, list, progress and watch history.
@@ -81,7 +83,25 @@ and secrets stay outside the repository. The guide walks through the neutral
 reference provider, fixture service, validation, activation, rollback and
 deletion. The factory reference is disabled by default.
 
-## Architecture and development
+## Architecture
+
+```mermaid
+flowchart LR
+  TV["TV launcher<br/>(webOS / Tizen shell)"] -- opens --> FE
+  Browser --> FE["Frontend<br/>React + Vite, nginx :3000"]
+  FE -- "/api, WebSocket" --> API["Backend API<br/>FastAPI"]
+  API --> DB[("SQLite<br/>data/")]
+  API --> TMDB["TMDB catalog"]
+  API --> PA["Provider adapters<br/>config/providers/"]
+  PA --> Origin["Operator-chosen<br/>media origin"]
+  API -- "proxied playback" --> FE
+```
+
+The TV launchers only store a server address and open the same web frontend.
+The frontend talks to the backend through `/api`; the backend owns profiles,
+progress, rooms and the SQLite database, resolves playback through installed
+provider adapters, and proxies media so source URLs and headers stay
+server-side.
 
 The frontend is React, TypeScript and Vite. FastAPI, SQLAlchemy, Alembic and
 SQLite power the backend. TMDB supplies canonical movie/series identity and
@@ -91,20 +111,42 @@ only on playback routes. See the [V1 API index](docs/backend-v1.md) and
 
 For frontend development, run `npm ci` and `npm run build` in `app/frontend/`.
 Backend dependencies are pinned in `app/backend/requirements.txt`; set a local
-`DATABASE_URL` and run `alembic upgrade head` from `app/backend/`. Targeted
-tests live in `app/backend/tests/` and `app/frontend/tests/`. Production-like
-verification can use `docker compose build` and the documented fixture tests;
-tests do not require a live third-party media provider.
+`DATABASE_URL` and run `alembic upgrade head` from `app/backend/`.
+
+## Testing
+
+No test needs a live third-party media provider; provider tests use the
+synthetic fixtures in `app/backend/tests/provider_fixtures/`.
+
+Automated in [CI](.github/workflows/ci.yml) on every push and pull request:
+
+- Backend: `python -m pytest tests` in `app/backend/` (API, migrations,
+  playback, providers, recommendations, Watch Together).
+- Frontend: `npm run build` (TypeScript + Vite) and the Node unit tests
+  `tests/audio-match.mjs` and `tests/profile-polish.mjs` in `app/frontend/`.
+- TV shell: `node --test tv/tests/`.
+
+Manual: the Playwright browser smokes in `app/frontend/tests/` and
+`app/backend/tests/manual/` require an explicitly isolated fixture
+environment, and the [release acceptance](docs/release-acceptance.md) journeys
+and physical TV sideloading are run by hand before a release.
 
 ## V1 boundaries
 
 Watch Together rooms are ephemeral, in-process and require one backend worker;
 a backend restart ends rooms. Disconnected participants have a 60-second
 reconnect grace period; rooms are not stored across restarts. There is no chat, voice, offline download,
-parental control or DRM-heavy commercial playback guarantee. Viewer profiles
-are not separate authentication accounts. Provider Python runs as trusted owner
-code, not inside a security sandbox. See [security](SECURITY.md) before exposing
-Admin or the provider editor outside a private network.
+parental control or DRM-heavy commercial playback guarantee.
+
+## Security model
+
+Orbis targets a trusted household server on a private network. Only the owner
+profile has an Admin password; viewer profiles are not separate authentication
+accounts. Provider Python runs as trusted owner code, not inside a security
+sandbox. See [SECURITY.md](SECURITY.md) before exposing Admin or the provider
+editor outside a private network, and for reporting vulnerabilities.
+
+## License and credits
 
 TMDB and optional IMDb data have their own usage and attribution requirements;
 see [data and attribution](docs/data-attribution.md). Orbis is licensed under

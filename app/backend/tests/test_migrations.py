@@ -51,7 +51,7 @@ class MigrationTests(unittest.TestCase):
                     "content_markers",
                 }.issubset(tables)
             )
-            self.assertEqual(revision, "e64a0c31f952")
+            self.assertEqual(revision, "f0b3c9d7412a")
             with closing(sqlite3.connect(database)) as connection, connection:
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
                 self.assertIsNone(connection.execute("SELECT owner_id FROM installation").fetchone()[0])

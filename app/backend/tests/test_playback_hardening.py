@@ -666,5 +666,8 @@ class PlaybackProxyTests(HardeningTestCase):
         self.assertNotIn("top-secret", serialized)
         self.assertNotIn("private-origin", serialized)
         self.assertEqual(admin_response.status_code, 200)
-        self.assertNotIn("sources", admin_response.json())
+        for diagnostic in admin_response.json()["sources"]:
+            self.assertNotIn("url", diagnostic)
+            self.assertNotIn("headers", diagnostic)
         self.assertNotIn("top-secret", admin_response.text)
+        self.assertNotIn("private-origin", admin_response.text)
