@@ -124,7 +124,7 @@ Automated in [CI](.github/workflows/ci.yml) on every push and pull request:
   playback, providers, recommendations, Watch Together).
 - Frontend: `npm run build` (TypeScript + Vite) and the Node unit tests
   `tests/audio-match.mjs` and `tests/profile-polish.mjs` in `app/frontend/`.
-- TV shell: `node --test tv/tests/`.
+- TV shell: `node --test tv/tests/*.test.cjs`.
 
 Manual: the Playwright browser smokes in `app/frontend/tests/` and
 `app/backend/tests/manual/` require an explicitly isolated fixture
