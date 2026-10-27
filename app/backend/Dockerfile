@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS webos-cli
+FROM node:24.22.1-bookworm-slim AS webos-cli
 RUN npm install --global --no-audit --no-fund @webos-tools/cli@3.2.6
 
 FROM python:3.13-slim
