@@ -1,6 +1,8 @@
-# Orbis as a CasaOS app: App Store → Custom Install → Import this file.
-# CI publishes both images for arm64 and amd64 on every passing push to main;
-# CasaOS's Update button pulls them and recreates the containers on the same data.
+# Orbis in a one-app CasaOS store (deploy/casaos is the store root). Add
+# https://github.com/Contraill/Orbis/archive/refs/heads/main.zip as an App Store
+# source and install Orbis from it: CasaOS only offers updates for store apps.
+# CI publishes both images for arm64 and amd64 on every passing push to main; the
+# Update action compares the frontend's `latest` digest and pulls both images.
 # Set TMDB_API_KEY (and DATABASE_URL for an older media-app.db) in the app settings.
 name: orbis
 services:
@@ -43,6 +45,7 @@ services:
     restart: unless-stopped
 
 x-casaos:
+  store_app_id: orbis
   architectures: [arm64, amd64]
   main: frontend
   author: Contraill

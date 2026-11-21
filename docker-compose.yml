@@ -1,5 +1,5 @@
 # Build and run from source. For CasaOS with published images and its Update
-# button, import deploy/casaos/docker-compose.yml instead.
+# button, install from the store in deploy/casaos (see README).
 name: orbis
 services:
     backend:

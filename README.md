@@ -68,11 +68,12 @@ repository rename. See [operations and backup](docs/v1-operations.md).
 
 Every push to `main` that passes CI publishes `ghcr.io/contraill/orbis-backend`
 and `ghcr.io/contraill/orbis-frontend` for arm64 and amd64, tagged `latest` and
-`sha-<commit>`. In CasaOS open App Store → Custom Install → Import and paste
-[`deploy/casaos/docker-compose.yml`](deploy/casaos/docker-compose.yml), then set
-`TMDB_API_KEY` in the app's settings. Data lives in `/DATA/AppData/orbis/`.
-CasaOS's **Update** button pulls the latest images and recreates the containers
-on the same data. To run unreleased changes, build the images on the host under
+`sha-<commit>`. CasaOS only offers updates for apps from an app store, so
+`deploy/casaos/` is a one-app store: in CasaOS open App Store → More apps → add
+the source `https://github.com/Contraill/Orbis/archive/refs/heads/main.zip`,
+install Orbis from it and set `TMDB_API_KEY` in the install dialog. Data lives in
+`/DATA/AppData/orbis/`. Afterwards the app menu's **Check and install updates**
+pulls the latest images and recreates the containers on the same data. To run unreleased changes, build the images on the host under
 the same names (`docker build -t ghcr.io/contraill/orbis-frontend:latest
 app/frontend`, likewise for the backend) and restart the app; pulling again
 returns to the published images.

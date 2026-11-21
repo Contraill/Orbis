@@ -55,5 +55,5 @@ No Unicode glyphs stand in for icons.
 
 ## CasaOS
 
-`x-casaos.icon` in `deploy/casaos/docker-compose.yml` uses the distributable app
+`x-casaos.icon` in `deploy/casaos/Apps/orbis/docker-compose.yml` uses the distributable app
 icon. A private installation may point it at its own reachable frontend origin.

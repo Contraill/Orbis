@@ -5,9 +5,8 @@
 - Quieter visual refresh: ink surfaces with one teal accent, self-hosted
   Archivo type, typeset Orbis name beside the orbit mark, drawn SVG icons, and a
   calmer silk background shown fully only on entry screens.
-- CI publishes multi-arch backend and frontend images to GHCR; the CasaOS app
-  definition in `deploy/casaos/` installs them and updates with CasaOS's Update
-  button.
+- CI publishes multi-arch backend and frontend images to GHCR; `deploy/casaos/`
+  is a one-app CasaOS store, so CasaOS's update action installs new versions.
 - TV launchers 1.1.0: the setup and offline screens follow the new look; the
   Orbis UI itself is served by the server, so TVs show the refresh as soon as
   the server is updated.
