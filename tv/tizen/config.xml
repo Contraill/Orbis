@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://orbis.example.org/tv" version="1.0.0" viewmodes="fullscreen">
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://orbis.example.org/tv" version="1.1.0" viewmodes="fullscreen">
   <tizen:application id="OrbisTV01.Orbis" package="OrbisTV01" required_version="2.4"/>
   <tizen:profile name="tv"/>
   <name>Orbis</name>

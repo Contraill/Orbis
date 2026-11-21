@@ -9,7 +9,7 @@
 <body>
   <main id="setup" class="scene" hidden>
     <section class="card">
-      <img class="wordmark" src="wordmark.png" alt="Orbis">
+      <div class="brand" role="img" aria-label="Orbis"><img src="mark.png" alt=""><span aria-hidden="true">ORBIS</span></div>
       <h1>Connect your TV</h1>
       <p>Enter the address of your Orbis server.</p>
       <form id="server-form">
@@ -21,10 +21,10 @@
       <small>TV installation ID: <code id="installation-id"></code></small>
     </section>
   </main>
-  <main id="checking" class="scene" hidden><section class="card compact"><img class="wordmark" src="wordmark.png" alt="Orbis"><p role="status">Connecting to your server…</p></section></main>
+  <main id="checking" class="scene" hidden><section class="card compact"><div class="brand" role="img" aria-label="Orbis"><img src="mark.png" alt=""><span aria-hidden="true">ORBIS</span></div><p role="status">Connecting to your server…</p></section></main>
   <main id="offline" class="scene" hidden>
     <section class="card compact">
-      <img class="wordmark" src="wordmark.png" alt="Orbis">
+      <div class="brand" role="img" aria-label="Orbis"><img src="mark.png" alt=""><span aria-hidden="true">ORBIS</span></div>
       <h1>Server unavailable</h1>
       <p>Configured server: <strong id="configured"></strong></p>
       <div class="actions"><button id="retry">Retry</button><button id="change-server" class="secondary">Change Server</button></div>

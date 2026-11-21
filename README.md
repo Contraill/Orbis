@@ -81,11 +81,14 @@ returns to the published images.
 
 Build the shared Tizen WGT and stage the LG app with `python3 tv/build.py`;
 build the LG IPK with `sh tv/build-webos.sh` (Docker and LG's CLI are used).
-The artifacts are `tv/dist/orbis-tizen-1.0.0.wgt` and
-`tv/dist/orbis-webos-1.0.0.ipk`. Neither package embeds a server address or
+The artifacts are `tv/dist/orbis-tizen-1.1.0.wgt` and
+`tv/dist/orbis-webos-1.1.0.ipk`. Neither package embeds a server address or
 personal TV credentials. See the [webOS guide](docs/tv/webos.md) and
 [Tizen guide](docs/tv/tizen.md) for sideloading, first-launch configuration,
 and LG Developer Mode renewal. **Physical TV validation is pending.**
+The launchers load the Orbis interface from your server, so a server update
+reaches the TVs on their next launch; reinstall a launcher only when its own
+version changes.
 
 ## Providers
 

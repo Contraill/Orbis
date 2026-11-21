@@ -10,7 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
 ICON = ROOT.parent / "app/frontend/public/brand/app-icon.png"
-WORDMARK = ROOT.parent / "app/frontend/public/brand/wordmark.png"
+MARK = ROOT.parent / "app/frontend/public/brand/mark.png"
+FONTS = ROOT.parent / "app/frontend/public/fonts"
+VERSION = "1.1.0"
 
 
 def stage(platform: str) -> Path:
@@ -21,7 +23,10 @@ def stage(platform: str) -> Path:
     for name in ("index.html", "shell.js", "shell.css"):
         shutil.copy2(ROOT / "shared" / name, target / name)
     shutil.copy2(ICON, target / "icon.png")
-    shutil.copy2(WORDMARK, target / "wordmark.png")
+    shutil.copy2(MARK, target / "mark.png")
+    # Fonts sit at the package root: the WGT archive is flat.
+    for font in sorted(FONTS.glob("*.woff2")):
+        shutil.copy2(font, target / font.name)
     document = (target / "index.html").read_text()
     document = document.replace('<script src="shell.js"></script>',
         f'<script>window.ORBIS_TV_PLATFORM = "{platform}";</script>\n  <script src="shell.js"></script>')
@@ -29,16 +34,16 @@ def stage(platform: str) -> Path:
     if platform == "webos":
         shutil.copy2(ROOT / "webos/appinfo.json", target / "appinfo.json")
         data = json.loads((target / "appinfo.json").read_text())
-        assert data["version"] == "1.0.0" and data["main"] == "index.html"
+        assert data["version"] == VERSION and data["main"] == "index.html"
     else:
         shutil.copy2(ROOT / "tizen/config.xml", target / "config.xml")
         config = ET.parse(target / "config.xml").getroot()
-        assert config.attrib["version"] == "1.0.0"
+        assert config.attrib["version"] == VERSION
     return target
 
 
 def build_wgt(target: Path) -> Path:
-    package = DIST / "orbis-tizen-1.0.0.wgt"
+    package = DIST / f"orbis-tizen-{VERSION}.wgt"
     with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in sorted(target.iterdir()):
             assert file.name not in {"author-signature.xml", "signature1.xml"}
