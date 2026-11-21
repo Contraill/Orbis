@@ -17,7 +17,7 @@ general streaming provider (see [Providers](#providers)).
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/profiles.png" alt="Profile picker: Who's watching?"></td>
-    <td width="50%"><img src="docs/screenshots/home.png" alt="Home screen with featured title and New Seasons shelf"></td>
+    <td width="50%"><img src="docs/screenshots/home.png" alt="Home screen with featured title and New Movies &amp; Series shelf"></td>
   </tr>
   <tr>
     <td align="center"><sub>Profile picker</sub></td>
@@ -63,6 +63,19 @@ your own reviewed HTTPS ingress. Tailscale is an option, not a requirement.
 An existing installation may retain older container names, database paths and
 private Compose overrides; changing those names is not required for a GitHub
 repository rename. See [operations and backup](docs/v1-operations.md).
+
+### CasaOS
+
+Every push to `main` that passes CI publishes `ghcr.io/contraill/orbis-backend`
+and `ghcr.io/contraill/orbis-frontend` for arm64 and amd64, tagged `latest` and
+`sha-<commit>`. In CasaOS open App Store → Custom Install → Import and paste
+[`deploy/casaos/docker-compose.yml`](deploy/casaos/docker-compose.yml), then set
+`TMDB_API_KEY` in the app's settings. Data lives in `/DATA/AppData/orbis/`.
+CasaOS's **Update** button pulls the latest images and recreates the containers
+on the same data. To run unreleased changes, build the images on the host under
+the same names (`docker build -t ghcr.io/contraill/orbis-frontend:latest
+app/frontend`, likewise for the backend) and restart the app; pulling again
+returns to the published images.
 
 ## TV launchers
 

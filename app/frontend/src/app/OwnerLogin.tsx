@@ -16,7 +16,7 @@ export default function OwnerLogin() {
     catch (reason) { setError(reason instanceof ApiError && reason.status === 401 ? "Invalid owner credentials" : reason instanceof ApiError && reason.status === 429 ? "Try again later" : "Request failed"); }
     finally { setBusy(false); }
   }
-  return <section className="admin-login-card"><span className="orbis-kicker">ORBIS / {t("Admin")}</span><h1>{t("Admin access")}</h1><p>{t("Sign in to manage Orbis")}</p>
+  return <section className="admin-login-card"><h1>{t("Admin access")}</h1><p>{t("Sign in to manage Orbis")}</p>
     {!setup?.owner_password_configured ? <><p>{t("Owner password is not configured. Run the local owner setup command.")}</p><code>docker compose exec backend python -m core.owner</code></> :
       <form className="admin-login-form" onSubmit={submit}>
         <label htmlFor="owner-password">{t("Password")}</label>

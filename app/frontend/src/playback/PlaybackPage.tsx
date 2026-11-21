@@ -32,6 +32,7 @@ import OrbitalLoader from "./OrbitalLoader";
 import "./player.css";
 import { useProfile } from "../app/ProfileContext";
 import { useText } from "../app/i18n";
+import Icon from "../app/Icon";
 import type {
   AudioKind,
   AudioTrack,
@@ -705,7 +706,7 @@ export default function PlaybackPage() {
       onAutoplay={enabled => void updateAutoplay(enabled)}
       alerts={<>
         {nextCountdown !== null ? <div className="orbis-player-next-prompt" role="status"><span>{t("Next episode")} · {nextCountdown}</span><button onClick={() => { setNextCountdown(null); void moveEpisode("next"); }}>{t("Play now")}</button><button onClick={() => setNextCountdown(null)}>{t("Cancel")}</button></div> : null}
-        {error ? <div className="orbis-player-notice" role="alert"><span>{t("Playback could not continue. Please retry.")}</span><button onClick={() => void requestReplacement("recover", undefined, { category: "other", resource_type: "unknown", http_status: null, code: null })}>{t("Try again")}</button><button onClick={() => setError(null)} aria-label={t("Dismiss")}>×</button></div> : null}
+        {error ? <div className="orbis-player-notice" role="alert"><span>{t("Playback could not continue. Please retry.")}</span><button onClick={() => void requestReplacement("recover", undefined, { category: "other", resource_type: "unknown", http_status: null, code: null })}>{t("Try again")}</button><button onClick={() => setError(null)} aria-label={t("Dismiss")}><Icon name="close" /></button></div> : null}
         {message && !error && failoverBusy ? <div className="orbis-player-notice" role="status">{t("Restoring playback…")}</div> : null}
       </>}
       watchPanel={<GlobalRoomControl embedded currentContent={{ media_type: identity.mediaType, tmdb_id: identity.tmdbId, season_number: identity.seasonNumber ?? null, episode_number: identity.episodeNumber ?? null }} />}>

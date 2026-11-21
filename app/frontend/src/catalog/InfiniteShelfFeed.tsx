@@ -4,6 +4,7 @@ import { ApiError, getContinue, getFeed, hideContinue, type FeedItem, type FeedS
 import { useText } from "../app/i18n";
 import MediaCard from "./MediaCard";
 import MediaCardSkeleton from "./MediaCardSkeleton";
+import Icon from "../app/Icon";
 
 type Cache = { shelves: FeedShelf[]; cursor: string | null; savedAt: number };
 const pageCache = new Map<string, Cache>();
@@ -30,7 +31,7 @@ function ContinueCard({ item, duration, onHide }: { item: FeedItem; duration: nu
 function Shelf({ shelf, durations, onHide }: { shelf: FeedShelf; durations: Record<string, number | null>; onHide: (item: FeedItem) => Promise<void> }) {
   if (!shelf.items.length) return null;
   return <section className="orbis-shelf" data-shelf-id={shelf.id} aria-label={shelf.title}>
-    <div className="orbis-shelf-heading"><h2>{shelf.genre_id ? <Link className="genre-heading-link" to={`/genre/${shelf.genre_id}?scope=${shelf.genre_scope ?? "all"}`}>{shelf.title}<span aria-hidden="true">›</span></Link> : shelf.title}</h2><span aria-hidden="true" /></div>
+    <div className="orbis-shelf-heading"><h2>{shelf.genre_id ? <Link className="genre-heading-link" to={`/genre/${shelf.genre_id}?scope=${shelf.genre_scope ?? "all"}`}>{shelf.title}<Icon name="next" /></Link> : shelf.title}</h2></div>
     <div className={shelf.kind === "continue" ? "orbis-shelf-track continue-track" : "orbis-shelf-track"}>
       {shelf.items.map(item => shelf.kind === "continue"
         ? <ContinueCard key={item.key} item={item} duration={durations[item.key] ?? null} onHide={() => onHide(item)} />
@@ -111,13 +112,11 @@ export default function InfiniteShelfFeed({ profileId, locale, surface, fallback
   return <>
     <section className={`orbis-hero ${hero?.backdrop_url ? "has-art" : ""}`} style={hero?.backdrop_url ? { backgroundImage: `url("${hero.backdrop_url}")` } : undefined}>
       <div className="orbis-hero-shade" /><div className="orbis-hero-content">
-        <span className="orbis-kicker">{t(surface === "home" ? "A place for every story." : surface === "movies" ? "Movies" : "Series")}</span>
         <h1>{hero?.title ?? fallbackTitle}</h1>
         <p>{hero?.overview || t("Explore films and series chosen for you.")}</p>
-        {hero ? <Link className="orbis-button accent" to={`/${hero.media_type}/${hero.tmdb_id}`}>{t("Details")} <span aria-hidden="true">↗</span></Link>
-          : <Link className="orbis-button accent" to="/search">{t("Search Orbis")} <span aria-hidden="true">↗</span></Link>}
+        {hero ? <Link className="orbis-button accent" to={`/${hero.media_type}/${hero.tmdb_id}`}>{t("Details")}</Link>
+          : <Link className="orbis-button accent" to="/search">{t("Search Orbis")}</Link>}
       </div>
-      <div className="hero-index" aria-hidden="true"><span>ORBIS</span><span>01 / 01</span></div>
     </section>
     <div className="browse-shelves">
       {shelves.filter(s => s.kind !== "hero").map(shelf => <Shelf key={shelf.id} shelf={shelf} durations={durations} onHide={hide} />)}
@@ -125,7 +124,7 @@ export default function InfiniteShelfFeed({ profileId, locale, surface, fallback
       {error ? <div className="product-state" role="alert"><p>{error}</p><button className="orbis-button" onClick={() => void load(cursor ?? undefined)}>{t("Try again")}</button></div> : null}
       {!busy && !error && !shelves.length ? <div className="product-state"><h2>{t("No titles yet")}</h2><p>{t("This section is waiting for more titles. Search to discover something new.")}</p><Link className="orbis-button" to="/search">{t("Search")}</Link></div> : null}
       <div ref={sentinel} className="shelf-sentinel" />
-      {cursor ? <button className="load-shelves" disabled={busy} onClick={() => void load(cursor)}>{t(busy ? "Loading more" : "More shelves")} <span aria-hidden="true">↓</span></button> : null}
+      {cursor ? <button className="load-shelves" disabled={busy} onClick={() => void load(cursor)}>{t(busy ? "Loading more" : "More shelves")}</button> : null}
     </div>
   </>;
 }

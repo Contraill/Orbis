@@ -1,4 +1,5 @@
-FROM node:24.22.1-alpine AS build
+# Static output is architecture-independent, so the build stage runs natively.
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine AS build
 
 WORKDIR /app
 

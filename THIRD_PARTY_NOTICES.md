@@ -21,8 +21,9 @@ Container base images carry their own notices.
 | HTTPX | 0.28.1 | BSD-3-Clause | Backend dependency |
 | pydantic-settings | 2.15.0 | MIT | Backend dependency |
 | @webos-tools/cli | 3.2.6 | Apache-2.0 | LG packaging and paired-TV maintenance tooling in the backend image |
+| Archivo (variable, latin + latin-ext) | 2020 release | OFL-1.1 | Self-hosted interface typeface in `app/frontend/public/fonts/` |
 
-The silk background shader and glass primitives are original Orbis
+The silk background shader and interface icons are original Orbis
 implementations; no third-party demo component source is distributed here.
 TMDB metadata and
 optional IMDb data have separate data-use/attribution terms; see

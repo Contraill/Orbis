@@ -64,7 +64,7 @@ export default function GenrePage() {
   }, [cursor, busy, error, load]);
   if (!profile) return <ProfileSelection />;
   return <div className="product-shell ambient subtle"><AppHeader /><main className="product-page genre-page" id="main-content">
-    <header className="genre-page-header"><span className="orbis-kicker">ORBIS / {t("Browse by genre")}</span><h1>{title || t("Browse by genre")}</h1>
+    <header className="genre-page-header"><h1>{title || t("Browse by genre")}</h1>
       <div className="filter-tabs" role="group" aria-label={t("Content type")}>{(["all", "movie", "tv"] as Scope[]).map(value =>
         <button type="button" key={value} className={scope === value ? "selected" : ""} aria-pressed={scope === value}
           onClick={() => setParams({ scope: value })}>{t(value === "all" ? "All" : value === "movie" ? "Movies" : "Series")}</button>)}</div>

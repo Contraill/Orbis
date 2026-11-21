@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { useProfile } from "./ProfileContext";
 
-// Orbis' compact procedural aurora shader; no external demo source is bundled.
+// Orbis' compact procedural silk shader; no external demo source is bundled.
 const vertex = `#version 300 es
 in vec2 position;
 void main() { gl_Position = vec4(position, 0.0, 1.0); }`;
@@ -27,34 +28,32 @@ float field(vec2 p) {
 void main() {
   vec2 uv = gl_FragCoord.xy / resolution;
   float x = uv.x, y = uv.y;
-  float drift = time * .045;
-  float largeFold = field(vec2(x * 3.3 + drift, .4));
-  float fineFold = field(vec2(x * 13.5 - drift * .7, 2.1));
-  float horizon = .49 + .105 * sin(x * 5.3 + .25 + drift * .32)
-                 + .054 * sin(x * 11.4 - 1.4 - drift * .25)
-                 + (largeFold - .5) * .115;
+  float drift = time * .03;
+  float largeFold = field(vec2(x * 2.6 + drift, .4));
+  float fineFold = field(vec2(x * 8.5 - drift * .7, 2.1));
+  float horizon = .47 + .09 * sin(x * 4.6 + .25 + drift * .4)
+                 + .04 * sin(x * 9.8 - 1.4 - drift * .3)
+                 + (largeFold - .5) * .1;
   float distanceToFold = y - horizon;
-  float veil = exp(-pow(distanceToFold / .145, 2.0));
-  float softBody = exp(-pow((distanceToFold - .055) / .235, 2.0));
-  float lowerFold = horizon - .125 + .028 * sin(x * 14. + drift * .35);
-  float secondVeil = exp(-pow((y - lowerFold) / .105, 2.0));
-  float verticalRibs = pow(.5 + .5 * sin(x * 115. + fineFold * 15. + y * 7.), 5.);
-  float broadRibs = pow(.5 + .5 * sin(x * 37. + largeFold * 9. - y * 3.), 3.);
-  float folds = (.20 + verticalRibs * .62 + broadRibs * .28) * veil;
-  float seam = exp(-pow(distanceToFold / .023, 2.0));
-  float atmospheric = exp(-pow((y - horizon + .045) / .34, 2.0));
-  vec3 navy = mix(vec3(.014, .035, .069), vec3(.012, .067, .105), y * .75);
-  vec3 ocean = vec3(.013, .17, .235);
-  vec3 cyan = vec3(.055, .53, .61);
-  vec3 sea = vec3(.055, .34, .35);
-  float hue = .5 + .5 * sin(x * 7.1 + largeFold * 3.4);
-  vec3 light = mix(ocean, mix(cyan, sea, hue * .43), .67 + .33 * fineFold);
-  vec3 result = navy + light * (folds * .72 + veil * .18 + secondVeil * .13 + softBody * .08 + seam * .17)
-                      + vec3(.014, .07, .095) * atmospheric * .35;
-  result += vec3(.15, .37, .38) * seam * verticalRibs * .20;
+  float veil = exp(-pow(distanceToFold / .16, 2.0));
+  float softBody = exp(-pow((distanceToFold - .05) / .26, 2.0));
+  float lowerFold = horizon - .13 + .025 * sin(x * 11. + drift * .4);
+  float secondVeil = exp(-pow((y - lowerFold) / .11, 2.0));
+  // Folds run along the ribbon like the orbit mark's swoosh; vertical ribs read as an audio spectrum.
+  float ribbon = .5 + .5 * sin(distanceToFold * 46. + largeFold * 5. + x * 2.);
+  float sheen = ribbon * ribbon * ribbon;
+  float folds = (.34 + sheen * .58) * veil;
+  float seam = exp(-pow(distanceToFold / .03, 2.0));
+  vec3 ink = mix(vec3(.018, .028, .04), vec3(.02, .045, .066), y * .7);
+  vec3 deep = vec3(.03, .14, .19);
+  vec3 teal = vec3(.10, .42, .45);
+  vec3 blue = vec3(.06, .22, .44);
+  float hue = .5 + .5 * sin(x * 4.2 + largeFold * 3.);
+  vec3 light = mix(deep, mix(teal, blue, hue * .6), .55 + .3 * fineFold);
+  vec3 result = ink + light * (folds * .55 + veil * .14 + secondVeil * .09 + softBody * .07 + seam * .08);
   float vignette = smoothstep(-.18, .24, x) * smoothstep(-.18, .24, 1. - x)
                  * smoothstep(-.3, .25, y) * smoothstep(-.18, .18, 1. - y);
-  result *= mix(.62, 1., vignette);
+  result *= mix(.55, 1., vignette);
   float grain = hash(gl_FragCoord.xy + vec2(time * .7)) - .5;
   result += grain * .003;
   color = vec4(result, 1.);
@@ -72,9 +71,10 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string) {
 
 export default function OrbisSilkBackground() {
   const path = useLocation().pathname;
+  const { profile } = useProfile();
   const canvas = useRef<HTMLCanvasElement>(null);
   const [available, setAvailable] = useState(true);
-  const context = path.startsWith("/watch/") ? "player" : path.startsWith("/admin") ? "admin" : path.startsWith("/movie/") || path.startsWith("/tv/") ? "detail" : path === "/" || path === "/movies" || path === "/series" || path === "/library" ? "browse" : "open";
+  const context = path.startsWith("/watch/") ? "player" : path.startsWith("/admin") ? "admin" : !profile || path.startsWith("/profiles/") ? "open" : path.startsWith("/movie/") || path.startsWith("/tv/") ? "detail" : "browse";
 
   useEffect(() => {
     const element = canvas.current;
@@ -115,7 +115,7 @@ export default function OrbisSilkBackground() {
         last = now;
         gl!.viewport(0, 0, element!.width, element!.height);
         gl!.uniform2f(dimensions, element!.width, element!.height);
-        gl!.uniform1f(clock, motion.matches ? 0 : (now - started) / 1000 * 1.35);
+        gl!.uniform1f(clock, motion.matches ? 0 : (now - started) / 1000 * .8);
         gl!.drawArrays(gl!.TRIANGLES, 0, 3);
       }
       if (!motion.matches) frame = requestAnimationFrame(paint);

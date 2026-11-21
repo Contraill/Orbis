@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Quieter visual refresh: ink surfaces with one teal accent, self-hosted
+  Archivo type, typeset Orbis name beside the orbit mark, drawn SVG icons, and a
+  calmer silk background shown fully only on entry screens.
+- CI publishes multi-arch backend and frontend images to GHCR; the CasaOS app
+  definition in `deploy/casaos/` installs them and updates with CasaOS's Update
+  button.
+
 ## Orbis 1.0.0
 
 - Self-hosted catalog, localized search and profile-specific discovery for

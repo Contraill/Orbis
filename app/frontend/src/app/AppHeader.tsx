@@ -6,6 +6,8 @@ import { useText } from "./i18n";
 import ProfileAvatar from "./ProfileAvatar";
 import GlobalRoomControl from "../watch/GlobalRoomControl";
 import { useGlobalWatchTogether } from "../watch/GlobalWatchTogether";
+import BrandMark from "./BrandMark";
+import Icon from "./Icon";
 
 const links = [
   ["/", "Home"], ["/movies", "Movies"], ["/series", "Series"],
@@ -48,8 +50,7 @@ export default function AppHeader() {
   return <>
     <header className="orbis-header">
       <Link className="orbis-brand" to="/" aria-label={t("Orbis Home")}>
-        <img className="brand-wordmark" src="/brand/wordmark.png" alt="Orbis" />
-        <img className="brand-icon" src="/brand/standalone-icon.png" alt="Orbis" />
+        <BrandMark />
       </Link>
       <nav className="orbis-nav" aria-label={t("Main navigation")}>
         {links.map(([to, label]) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => isActive ? "active" : ""}>{t(label)}</NavLink>)}
@@ -57,7 +58,7 @@ export default function AppHeader() {
       <GlobalRoomControl />
       <div className="orbis-account" ref={menuRoot}>
         <button className="account-trigger" type="button" aria-expanded={menu} aria-label={`${t("Switch profile")}: ${profile?.name ?? ""}`} onClick={() => setMenu(!menu)}>
-          <ProfileAvatar seed={profile?.avatar_seed || "Orbis"} config={profile?.avatar_config} size={36} /><span className="account-name">{profile?.name}</span><span className="account-chevron" aria-hidden="true">⌄</span>
+          <ProfileAvatar seed={profile?.avatar_seed || "Orbis"} config={profile?.avatar_config} size={36} /><span className="account-name">{profile?.name}</span><span className="account-chevron"><Icon name="down" size={16} /></span>
         </button>
         {menu ? <div className="account-menu">
           <div className="account-menu-identity"><ProfileAvatar seed={profile?.avatar_seed || "Orbis"} config={profile?.avatar_config} size={32} /><strong>{profile?.name}</strong></div>

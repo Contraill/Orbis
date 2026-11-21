@@ -7,6 +7,8 @@ import { useDirectionalFocus } from "./useDirectionalFocus";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import ProfileWizard from "./ProfileWizard";
 import { pendingTasteKey } from "./TasteSelection";
+import BrandMark from "./BrandMark";
+import Icon from "./Icon";
 
 export default function SetupGate({ children }: { children: ReactNode }) {
   const { setup, loading, error, reload, authenticate, profile } = useProfile();
@@ -50,13 +52,12 @@ export default function SetupGate({ children }: { children: ReactNode }) {
     } catch (reason) { setFailure(String(reason)); throw reason; }
     finally { setBusy(false); }
   }
-  return <main className="product-shell ambient setup-page"><div className="setup-orbit" aria-hidden="true" /><div className="setup-inner">
-    <img className="setup-brand" src="/brand/wordmark.png" alt="Orbis" />
-    <span className="orbis-kicker">{step === 0 ? "01 / 02" : "02 / 02"}</span>
+  return <main className="product-shell ambient setup-page"><div className="setup-inner">
+    <BrandMark className="setup-brand" />
     {step === 0 ? <section className="setup-intro"><h1>{translate(locale, "Welcome to Orbis")}</h1><p>{translate(locale, "A place for every story.")}</p>
       <h2>{translate(locale, "Choose your language")}</h2>
-      <div className="language-picks"><button className={locale === "en-US" ? "selected" : ""} onClick={() => setLocale("en-US")}>English <span>↗</span></button><button className={locale === "tr-TR" ? "selected" : ""} onClick={() => setLocale("tr-TR")}>Türkçe <span>↗</span></button></div>
-      <button className="orbis-button accent" disabled={busy} onClick={() => void next()}>{translate(locale, "Continue")} →</button>
+      <div className="language-picks"><button className={locale === "en-US" ? "selected" : ""} aria-pressed={locale === "en-US"} onClick={() => setLocale("en-US")}>English{locale === "en-US" ? <Icon name="check" /> : null}</button><button className={locale === "tr-TR" ? "selected" : ""} aria-pressed={locale === "tr-TR"} onClick={() => setLocale("tr-TR")}>Türkçe{locale === "tr-TR" ? <Icon name="check" /> : null}</button></div>
+      <button className="orbis-button accent" disabled={busy} onClick={() => void next()}>{translate(locale, "Continue")}</button>
     </section> : <section className="setup-profile"><h1>{translate(locale, "Create your profile")}</h1><p>{translate(locale, "Make Orbis your own")}</p>
       <ProfileWizard initial={initial} onLocaleChange={setLocale} canCreate={password.length >= 12} onCreate={create} extraFinal={<label className="setup-password">{translate(locale, "Password")}<input type="password" minLength={12} maxLength={128} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} /><small>{translate(locale, "Use at least 12 characters")}</small></label>} />
     </section>}

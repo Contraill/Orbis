@@ -1,0 +1,62 @@
+# Orbis as a CasaOS app: App Store → Custom Install → Import this file.
+# CI publishes both images for arm64 and amd64 on every passing push to main;
+# CasaOS's Update button pulls them and recreates the containers on the same data.
+# Set TMDB_API_KEY (and DATABASE_URL for an older media-app.db) in the app settings.
+name: orbis
+services:
+  backend:
+    image: ghcr.io/contraill/orbis-backend:latest
+    container_name: orbis-backend
+    hostname: orbis-backend
+    environment:
+      APP_ENV: production
+      APP_NAME: Orbis
+      TMDB_API_KEY: ""
+      TMDB_LANGUAGE: en-US
+      DATABASE_URL: sqlite:////data/orbis.db
+    volumes:
+      - type: bind
+        source: /DATA/AppData/orbis/data
+        target: /data
+      - type: bind
+        source: /DATA/AppData/orbis/config
+        target: /config
+      - type: bind
+        source: /DATA/AppData/orbis/cache
+        target: /cache
+      - type: bind
+        source: /DATA/AppData/orbis/logs
+        target: /logs
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/contraill/orbis-frontend:latest
+    container_name: orbis-frontend
+    hostname: orbis-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - target: 80
+        published: "3000"
+        protocol: tcp
+    restart: unless-stopped
+
+x-casaos:
+  architectures: [arm64, amd64]
+  main: frontend
+  author: Contraill
+  developer: Contraill
+  category: Media
+  port_map: "3000"
+  scheme: http
+  index: /
+  icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
+  title:
+    en_us: Orbis
+  tagline:
+    en_us: Your media, one interface.
+    tr_tr: Medyan, tek arayüzde.
+  description:
+    en_us: Self-hosted, multi-profile media interface for a small household.
+    tr_tr: Küçük bir ev için kendi sunucunda çalışan, çok profilli medya arayüzü.

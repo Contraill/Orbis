@@ -30,9 +30,6 @@ export default function MediaCard({ item }: { item: CatalogItem & { new_season?:
       <strong>{item.title}</strong>
       <small>
         {item.new_season ? `${t("Season")} ${item.new_season}` : `${t(item.media_type === "tv" ? "Series" : "Movies")} · ${releaseYear(item.release_date)}`}
-        {item.vote_average !== null
-          ? ` · ★ ${item.vote_average.toFixed(1)}`
-          : ""}
       </small>
     </Link>
   );

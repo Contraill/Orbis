@@ -28,7 +28,6 @@ const TestsPage = lazy(() => import("./admin/TestsPage"));
 
 import "./style.css";
 import "./product.css";
-import "./silk-glass.css";
 import SetupGate from "./app/SetupGate";
 import ProfileSettings from "./app/ProfileSettings";
 import AddProfilePage from "./app/AddProfilePage";

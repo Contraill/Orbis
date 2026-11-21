@@ -6,6 +6,7 @@ import { useProfile } from "../app/ProfileContext";
 import { useText } from "../app/i18n";
 import ProfileSelection from "./ProfileSelection";
 import MediaCardSkeleton from "./MediaCardSkeleton";
+import Icon from "../app/Icon";
 
 const groups = ["movie", "tv", "person", "company"] as const;
 type Group = typeof groups[number] | "all";
@@ -106,9 +107,9 @@ export default function SearchPage() {
   }
   if (!profile) return <ProfileSelection />;
   return <div className="product-shell ambient"><AppHeader /><main className="product-page search-page">
-    <div className="page-heading"><span className="orbis-kicker">ORBIS / {t("Search")}</span><h1>{credit ? credit.title : t("Search Orbis")}</h1><p>{credit ? credit.roles.map(t).join(" · ") : t("Search titles, genres, people and studios")}</p></div>
+    <div className="page-heading"><h1>{credit ? credit.title : t("Search Orbis")}</h1><p>{credit ? credit.roles.map(t).join(" · ") : t("Search titles, genres, people and studios")}</p></div>
     {credit ? <button className="quiet-action" onClick={backToResults}>{t("Back to results")}</button> : <>
-      <label className="search-field"><span aria-hidden="true">⌕</span><input autoFocus type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder={t("Search titles, genres, people and studios")} maxLength={200} aria-label={t("Search Orbis")} /></label>
+      <label className="search-field"><Icon name="search" size={22} /><input autoFocus type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder={t("Search titles, genres, people and studios")} maxLength={200} aria-label={t("Search Orbis")} /></label>
       <div className="filter-tabs" role="group" aria-label={t("Search")}>{(["all", ...groups] as Group[]).map(value => <button key={value} className={kind === value ? "selected" : ""} onClick={() => setKind(value)}>{t(value === "all" ? "All" : value === "movie" ? "Movies" : value === "tv" ? "Series" : value === "person" ? "People" : "Companies")}</button>)}</div>
     </>}
     {busy && !results.length ? <div className="search-grid search-skeleton" role="status" aria-label={t("Loading…")}>{Array.from({ length: 4 }, (_, index) => <MediaCardSkeleton compact key={index} />)}</div> : null}
@@ -116,15 +117,15 @@ export default function SearchPage() {
     {!busy && !error && !results.length && !genreResults.length ? <div className="product-state"><h2>{query.length < 2 && !credit ? t("Start with a title, genre, person or studio") : t("No results found")}</h2><p>{query.length < 2 && !credit ? t("Search across languages and discover the people behind what you love.") : t("Try another spelling or a different title.")}</p></div> : null}
     {!credit && genreResults.length ? <section className="search-group"><h2>{t("Genres")}</h2><div className="search-grid">{genreResults.map(genre =>
       <Link className="search-hit genre-hit" key={`${genre.scope}:${genre.genre_id}`} to={`/genre/${genre.genre_id}?scope=${genre.scope}`}>
-        <span className="genre-glyph" aria-hidden="true">◇</span><span><strong>{genre.title}</strong><small>{t("Explore genre")}</small></span><span aria-hidden="true">↗</span>
+        <span><strong>{genre.title}</strong><small>{t("Explore genre")}</small></span><Icon name="next" />
       </Link>)}</div></section> : null}
     {groups.map(group => { const items = results.filter(i => i.kind === group); if (!items.length) return null;
       return <section className="search-group" key={group}><h2>{t(group === "movie" ? "Movies" : group === "tv" ? "Series" : group === "person" ? "People" : "Companies")}</h2>
         <div className="search-grid">{items.map(item => item.kind === "movie" || item.kind === "tv"
           ? <Link className="search-hit" key={item.key} to={`/${item.kind}/${item.tmdb_id}`}><span className="search-hit-art"><span>{item.title[0]}</span>{item.poster_url ? <img src={item.poster_url} alt="" loading="lazy" onError={event => { event.currentTarget.hidden = true; }} /> : null}</span><span><strong>{item.title}</strong><small>{item.roles.length ? item.roles.map(t).join(" · ") : item.release_date?.slice(0, 4) || t(item.kind === "movie" ? "Movies" : "Series")}</small></span></Link>
-          : <button className="search-hit person-hit" key={item.key} onClick={() => void showCredits(item)}><span className="person-glyph" aria-hidden="true">{item.title[0]}</span><span><strong>{item.title}</strong><small>{item.roles.map(t).join(" · ") || t("Discover credits")}</small></span><span aria-hidden="true">↗</span></button>)}</div>
+          : <button className="search-hit person-hit" key={item.key} onClick={() => void showCredits(item)}><span className="person-glyph" aria-hidden="true">{item.title[0]}</span><span><strong>{item.title}</strong><small>{item.roles.map(t).join(" · ") || t("Discover credits")}</small></span><Icon name="next" /></button>)}</div>
       </section>; })}
-    {!credit && !online && query.trim().length >= 3 && (results.length > 0 || genreResults.length > 0) ? <button className="quiet-action search-expand" disabled={busy} onClick={() => void expandOnline()}>{t("Search wider catalog")} ↗</button> : null}
-    {cursor ? <button className="load-shelves" disabled={busy} onClick={() => void more()}>{t("Load more")} ↓</button> : null}
+    {!credit && !online && query.trim().length >= 3 && (results.length > 0 || genreResults.length > 0) ? <button className="quiet-action search-expand" disabled={busy} onClick={() => void expandOnline()}>{t("Search wider catalog")}</button> : null}
+    {cursor ? <button className="load-shelves" disabled={busy} onClick={() => void more()}>{t("Load more")}</button> : null}
   </main></div>;
 }

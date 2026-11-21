@@ -4,6 +4,7 @@ import type { ContentSelection } from "../types";
 import { useProfile } from "../app/ProfileContext";
 import { useText } from "../app/i18n";
 import { invalidateFeedCache } from "./InfiniteShelfFeed";
+import Icon from "../app/Icon";
 
 export default function DetailActions({ item }: { item: ContentSelection }) {
   const { profile } = useProfile();
@@ -26,7 +27,7 @@ export default function DetailActions({ item }: { item: ContentSelection }) {
     finally { setBusy(false); }
   }
   return <div className="detail-list-actions">
-    <button className="orbis-button ghost" disabled={busy} onClick={() => void change(false)}>{listed ? "✓" : "+"} {t(listed ? "Remove from My List" : "Add to My List")}</button>
+    <button className="orbis-button ghost" disabled={busy} onClick={() => void change(false)}><Icon name={listed ? "check" : "plus"} />{t(listed ? "Remove from My List" : "Add to My List")}</button>
     <button className="quiet-action" disabled={busy} onClick={() => void change(true)}>{t(negative ? "Clear feedback" : "Not Interested")}</button>
     {error ? <span role="alert" className="form-error">{error}</span> : null}
   </div>;

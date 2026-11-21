@@ -5,6 +5,7 @@ import ProfileWizard from "./ProfileWizard";
 import { pendingTasteKey } from "./TasteSelection";
 import { useProfile } from "./ProfileContext";
 import { translate } from "./i18n";
+import Icon from "./Icon";
 
 export default function AddProfilePage() {
   const { setup, pickerLocale, createProfile, profile } = useProfile();
@@ -24,7 +25,7 @@ export default function AddProfilePage() {
     <main className="product-page foundation-page">
       <h1>{t("Add Profile")}</h1>
       <p>{t("New profiles are viewers.")}</p>
-      <Link className="back-link" to="/">← {t("Cancel")}</Link>
+      <Link className="back-link" to="/"><Icon name="back" size={16} />{t("Cancel")}</Link>
       <ProfileWizard initial={initial} onLocaleChange={setWizardLocale} onCreate={async values => {
         const created = await createProfile(values);
         localStorage.setItem(pendingTasteKey(created.id), "1");

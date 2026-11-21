@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CatalogDetails } from "../types";
 import { useText } from "../app/i18n";
+import Icon from "../app/Icon";
 
 type YouTubePlayer = { mute: () => void; unMute: () => void; playVideo: () => void; destroy: () => void };
 type YouTubeApi = { Player: new (node: HTMLElement, options: Record<string, unknown>) => YouTubePlayer };
@@ -68,6 +69,6 @@ export default function TrailerBackdrop({ videos, initiallyMuted, onPlayingChang
   function sound() { if (!player.current) return; if (muted) player.current.unMute(); else player.current.mute(); setMuted(!muted); }
   return <div className={`trailer-layer ${playing ? "is-playing" : ""}`} aria-label={trailer.name || t("Trailer")}>
     <div ref={mount} className="trailer-mount" />
-    {playing ? <button className="trailer-sound" onClick={sound} aria-pressed={!muted} aria-label={t(muted ? "Trailer sound on" : "Trailer sound off")}>{muted ? "♪̸" : "♪"}</button> : null}
+    {playing ? <button className="trailer-sound" onClick={sound} aria-pressed={!muted} aria-label={t(muted ? "Trailer sound on" : "Trailer sound off")}><Icon name={muted ? "muted" : "sound"} size={20} /></button> : null}
   </div>;
 }

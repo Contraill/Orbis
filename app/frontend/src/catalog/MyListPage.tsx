@@ -33,7 +33,7 @@ export default function MyListPage() {
     finally { setBusy(false); }
   }
   return <div className="product-shell ambient"><AppHeader />
-    <main className="product-page list-page"><div className="page-heading"><span className="orbis-kicker">ORBIS / {t("My List")}</span><h1>{t("Your collection")}</h1><p>{t("Only the titles you saved.")}</p></div>
+    <main className="product-page list-page"><div className="page-heading"><h1>{t("Your collection")}</h1><p>{t("Only the titles you saved.")}</p></div>
       <div className="filter-tabs" role="group" aria-label={t("My List")}>
         {(["all", "movie", "tv"] as const).map(value => <button key={value} className={kind === value ? "selected" : ""} onClick={() => setKind(value)}>{t(value === "all" ? "All" : value === "movie" ? "Movies" : "Series")}</button>)}
       </div>
@@ -45,7 +45,7 @@ export default function MyListPage() {
         <div><Link to={`/${item.media_type}/${item.tmdb_id}`}>{item.metadata?.title ?? t("Saved title")}</Link><small>{t(item.media_type === "movie" ? "Movies" : "Series")}{item.metadata?.release_date ? ` · ${item.metadata.release_date.slice(0, 4)}` : ""}</small></div>
         <button className="quiet-action" disabled={busy} onClick={() => void remove(item)} aria-label={`${t("Remove from My List")}: ${item.metadata?.title ?? item.tmdb_id}`}>{t("Remove")}</button>
       </article>)}</div>
-      {items.length > visible ? <button className="load-shelves" onClick={() => setVisible(current => current + 24)}>{t("Load more")} ↓</button> : null}
+      {items.length > visible ? <button className="load-shelves" onClick={() => setVisible(current => current + 24)}>{t("Load more")}</button> : null}
     </main>
   </div>;
 }

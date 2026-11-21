@@ -1,3 +1,5 @@
+# Build and run from source. For CasaOS with published images and its Update
+# button, import deploy/casaos/docker-compose.yml instead.
 name: orbis
 services:
     backend:
@@ -21,8 +23,6 @@ services:
             - ./.env
         hostname: orbis-backend
         image: orbis-backend:latest
-        labels:
-            icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
         networks:
             default: null
         restart: unless-stopped
@@ -64,8 +64,6 @@ services:
                     memory: "8449425408"
         hostname: orbis-frontend
         image: orbis-frontend:latest
-        labels:
-            icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
         networks:
             default: null
         ports:
@@ -77,24 +75,3 @@ services:
 networks:
     default:
         name: orbis_default
-x-casaos:
-    architectures:
-        - arm64
-    author: Contraill
-    category: Media
-    description:
-        en_US: Self-hosted provider-agnostic media streaming platform.
-    developer: Contraill
-    hostname: ""
-    icon: https://raw.githubusercontent.com/Contraill/orbis/main/app/frontend/public/brand/app-icon.png
-    id: io.contraill.orbis
-    index: /
-    is_uncontrolled: false
-    main: frontend
-    port_map: "3000"
-    scheme: http
-    tagline:
-        en_US: Your media, one interface.
-    title:
-        custom: ""
-        en_US: Orbis

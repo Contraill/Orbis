@@ -9,6 +9,7 @@ import MediaCard from "./MediaCard";
 import TrailerBackdrop from "./TrailerBackdrop";
 import { useGlobalWatchTogether, type RoomContent } from "../watch/GlobalWatchTogether";
 import type { CatalogDetails, MediaType, PlaybackState, SeasonDetails, CatalogItem, ContinueEntry } from "../types";
+import Icon from "../app/Icon";
 
 function action(state: PlaybackState | undefined) {
   if (state?.completed) return "Play Again";
@@ -104,12 +105,11 @@ export default function DetailPage({ mediaType }: { mediaType: MediaType }) {
     <section className={`cinema-hero ${trailerPlaying && !detailsVisible ? "trailer-active" : ""}`} style={details.backdrop_url ? { backgroundImage: `url("${details.backdrop_url}")` } : undefined}>
       <TrailerBackdrop videos={details.videos} initiallyMuted={profile.trailer_muted} onPlayingChange={setTrailerPlaying} />
       <div className="cinema-shade" /><div className="cinema-copy" inert={trailerPlaying && !detailsVisible}>
-        <button className="cinema-back" onClick={() => navigate(-1)}>← {t("Back")}</button>
-        <span className="orbis-kicker">ORBIS / {t(mediaType === "movie" ? "Movies" : "Series")}</span>
+        <button className="cinema-back" onClick={() => navigate(-1)}><Icon name="back" />{t("Back")}</button>
         <h1>{details.title}</h1>
-        <div className="cinema-meta"><span>{details.release_date?.slice(0, 4)}</span>{details.runtime_minutes ? <span>{details.runtime_minutes} {t("min")}</span> : null}{imdb != null ? <span className="imdb-score">IMDb {imdb.toFixed(1)}</span> : details.vote_average != null ? <span>★ {details.vote_average.toFixed(1)}</span> : null}{details.genres.slice(0, 3).map(genre => <span key={genre}>{genre}</span>)}</div>
+        <div className="cinema-meta"><span>{details.release_date?.slice(0, 4)}</span>{details.runtime_minutes ? <span>{details.runtime_minutes} {t("min")}</span> : null}{imdb != null ? <span className="imdb-score">IMDb {imdb.toFixed(1)}</span> : details.vote_average != null ? <span>TMDB {details.vote_average.toFixed(1)}</span> : null}{details.genres.slice(0, 3).map(genre => <span key={genre}>{genre}</span>)}</div>
         <p className="cinema-overview">{details.overview || t("No overview is available.")}</p>
-        <div className="cinema-actions"><button className="orbis-button accent" onClick={() => void begin(primaryPath, primaryContent, details.title)}>▶ {t(continueEntry?.action === "next_episode" && mediaType === "tv" ? "Next episode" : action(primaryState))}</button>
+        <div className="cinema-actions"><button className="orbis-button accent" onClick={() => void begin(primaryPath, primaryContent, details.title)}><Icon name="play" />{t(continueEntry?.action === "next_episode" && mediaType === "tv" ? "Next episode" : action(primaryState))}</button>
           {primaryState && !primaryState.completed && primaryState.resume_position_seconds > 0 ? <button className="orbis-button ghost" onClick={() => void begin(primaryPath, primaryContent, details.title, true)}>{t("Start Over")}</button> : null}
           <DetailActions item={{ media_type: mediaType, tmdb_id: id }} />
         </div>
@@ -122,7 +122,7 @@ export default function DetailPage({ mediaType }: { mediaType: MediaType }) {
       <div className="detail-facts">{credits.map(([label, people]) => people.length ? <div key={label}><h2>{t(label)}</h2><p>{people.map((person, index) => <span key={`${person.tmdb_id}:${index}`}><Link to={`/search?q=${encodeURIComponent(person.name)}`}>{person.name}</Link>{person.character && label === "Cast" ? <small> · {person.character}</small> : null}{index < people.length - 1 ? ", " : ""}</span>)}</p></div> : null)}
         {details.production_companies.length ? <div><h2>{t("Production")}</h2><p>{details.production_companies.map((company, index) => <span key={company.tmdb_id}><Link to={`/search?q=${encodeURIComponent(company.name)}`}>{company.name}</Link>{index < details.production_companies.length - 1 ? ", " : ""}</span>)}</p></div> : null}
       </div>
-      {mediaType === "tv" ? <section className="orbis-episodes"><div className="orbis-section-heading"><div><span className="orbis-kicker">ORBIS / {t("Series")}</span><h2>{t("Episodes")}</h2></div><label>{t("Season")}<select value={seasonNumber} onChange={event => setParams({ season: event.target.value })}>{seasonNumbers.length ? seasonNumbers.map(n => <option key={n} value={n}>{details.seasons.find(s => s.season_number === n)?.name || `${t("Season")} ${n}`}</option>) : <option value="1">{t("Season")} 1</option>}</select></label></div>
+      {mediaType === "tv" ? <section className="orbis-episodes"><div className="orbis-section-heading"><h2>{t("Episodes")}</h2><label>{t("Season")}<select value={seasonNumber} onChange={event => setParams({ season: event.target.value })}>{seasonNumbers.length ? seasonNumbers.map(n => <option key={n} value={n}>{details.seasons.find(s => s.season_number === n)?.name || `${t("Season")} ${n}`}</option>) : <option value="1">{t("Season")} 1</option>}</select></label></div>
         {seasonLoading ? <p role="status">{t("Loading…")}</p> : null}{seasonError ? <p role="alert">{seasonError}</p> : null}
         {!seasonLoading && !seasonError && !season?.episodes.length ? <p>{t("No episodes are available for this season.")}</p> : null}
         <div className="orbis-episode-list">{season?.episodes.map(episode => {
@@ -130,7 +130,7 @@ export default function DetailPage({ mediaType }: { mediaType: MediaType }) {
           const path = episodePath(profile.id, id, seasonNumber, episode.episode_number);
           const content: RoomContent = { media_type: "tv", tmdb_id: id, season_number: seasonNumber, episode_number: episode.episode_number };
           const title = `${details.title} · S${seasonNumber} E${episode.episode_number}`;
-          return <article className="orbis-episode" key={episode.episode_number}><button className="episode-still" onClick={() => void begin(path, content, title)}>{episode.still_url ? <img src={episode.still_url} alt="" loading="lazy" /> : <span>{episode.episode_number}</span>}</button><div><span className="orbis-kicker">{t("Episode")} {episode.episode_number} {episode.air_date ? `· ${episode.air_date}` : ""}</span><h3>{episode.name || t("Untitled episode")}</h3><p>{episode.overview}</p>{state && state.resume_position_seconds > 0 ? <small>{Math.floor(state.resume_position_seconds / 60)} {t("min watched")}</small> : null}</div><button className="orbis-button ghost" onClick={() => void begin(path, content, title)}>{t(action(state))} ↗</button></article>;
+          return <article className="orbis-episode" key={episode.episode_number}><button className="episode-still" onClick={() => void begin(path, content, title)}>{episode.still_url ? <img src={episode.still_url} alt="" loading="lazy" /> : <span>{episode.episode_number}</span>}</button><div><span className="episode-meta">{t("Episode")} {episode.episode_number}{episode.air_date ? ` · ${episode.air_date}` : ""}</span><h3>{episode.name || t("Untitled episode")}</h3><p>{episode.overview}</p>{state && state.resume_position_seconds > 0 ? <small>{Math.floor(state.resume_position_seconds / 60)} {t("min watched")}</small> : null}</div><button className="orbis-button ghost" onClick={() => void begin(path, content, title)}><Icon name="play" size={16} />{t(action(state))}</button></article>;
         })}</div>
       </section> : null}
       {related.length ? <section className="orbis-shelf related-shelf"><div className="orbis-shelf-heading"><h2>{t("More like this")}</h2></div><div className="orbis-shelf-track">{related.map(item => <MediaCard key={`${item.media_type}:${item.tmdb_id}`} item={item} />)}</div></section> : null}

@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useText } from "../app/i18n";
 import { normalizeJoinCode, useGlobalWatchTogether, type RoomContent } from "./GlobalWatchTogether";
 import { copyText } from "./copyText";
+import Icon from "../app/Icon";
 
 export default function GlobalRoomControl({ embedded = false, currentContent }: { embedded?: boolean; currentContent?: RoomContent }) {
   const t = useText();
@@ -55,9 +56,9 @@ export default function GlobalRoomControl({ embedded = false, currentContent }: 
     catch (reason) { if (!(reason instanceof DOMException && reason.name === "AbortError")) setLocalError(t("Copy failed")); }
   }
   return <div className={`global-watch-control ${embedded ? "embedded" : ""}`}>
-    {!embedded ? <button ref={trigger} type="button" className={`global-watch-trigger ${watch.room ? "active" : ""}`} aria-expanded={open} aria-label={t("Watch Together")} onClick={() => setOpen(value => !value)}><span aria-hidden="true">◉</span><span>{t("Watch Together")}</span>{watch.room ? <small>{watch.room.participants.length}</small> : null}</button> : null}
+    {!embedded ? <button ref={trigger} type="button" className={`global-watch-trigger ${watch.room ? "active" : ""}`} aria-expanded={open} aria-label={t("Watch Together")} onClick={() => setOpen(value => !value)}><Icon name="together" /><span>{t("Watch Together")}</span>{watch.room ? <small>{watch.room.participants.length}</small> : null}</button> : null}
     {open ? createPortal(<div className={`global-watch-panel orbis-player-glass ${embedded ? "embedded" : ""}`} ref={panel} role="dialog" aria-label={t("Watch Together")}>
-      <div className="global-watch-panel-heading"><h2>{t("Watch Together")}</h2>{!embedded ? <button type="button" onClick={() => { setOpen(false); trigger.current?.focus(); }} aria-label={t("Close menu")}>×</button> : null}</div>
+      <div className="global-watch-panel-heading"><h2>{t("Watch Together")}</h2>{!embedded ? <button type="button" onClick={() => { setOpen(false); trigger.current?.focus(); }} aria-label={t("Close menu")}><Icon name="close" /></button> : null}</div>
       {!watch.room ? <>
         <p>{t("Watch with another Orbis profile. Each viewer keeps their own playback source.")}</p>
         <button className="orbis-button accent" type="button" disabled={busy} onClick={() => void perform(() => watch.create(currentContent ? { content: currentContent, position: document.querySelector<HTMLVideoElement>(".playback-stage video")?.currentTime ?? 0 } : undefined))}>{t("Create room")}</button>

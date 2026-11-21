@@ -5,6 +5,8 @@ import type { CatalogItem, ContentSelection } from "../types";
 import { invalidateFeedCache } from "../catalog/InfiniteShelfFeed";
 import { useProfile } from "./ProfileContext";
 import { translate, useText } from "./i18n";
+import BrandMark from "./BrandMark";
+import Icon from "./Icon";
 
 export const pendingTasteKey = (id: number) => `orbis.pending-taste.${id}`;
 
@@ -61,15 +63,14 @@ export default function TasteSelection() {
   }
   if (!profile || String(profile.id) !== id || localStorage.getItem(pendingTasteKey(profile.id)) !== "1") return <Navigate to="/" replace />;
   return <main className="product-shell ambient taste-page"><section className="taste-inner panel">
-    <img className="setup-brand" src="/brand/wordmark.png" alt="Orbis" />
-    <span className="orbis-kicker">{t("Make Orbis your own")}</span>
+    <BrandMark className="setup-brand" />
     <h1>{t("Up to five favorites")}</h1><p>{t("Pick films and series you love to shape your first recommendations.")}</p>
     <form className="taste-search" onSubmit={search}><label>{t("Search")}<input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={t("Search titles, people and studios")} /></label></form>
     <p className="selection-count" aria-live="polite">{t("Selected")}: {selected.length} / 5</p>
-    {selected.length ? <div className="taste-selected">{selected.map(item => <button key={`${item.media_type}:${item.tmdb_id}`} type="button" onClick={() => toggle(item)}>{item.title} ×</button>)}</div> : null}
+    {selected.length ? <div className="taste-selected">{selected.map(item => <button key={`${item.media_type}:${item.tmdb_id}`} type="button" onClick={() => toggle(item)}>{item.title}<Icon name="close" size={15} /></button>)}</div> : null}
     {searching ? <p role="status" className="taste-search-status">{t("Loading…")}</p> : null}
     {error ? <p role="alert" className="form-error">{error}</p> : null}
-    <div className="onboarding-grid taste-grid">{results.map(item => { const active = selected.some(value => value.media_type === item.media_type && value.tmdb_id === item.tmdb_id); return <button key={`${item.media_type}:${item.tmdb_id}`} type="button" className={`onboarding-card ${active ? "selected" : ""}`} aria-pressed={active} disabled={saving || (!active && selected.length >= 5)} onClick={() => toggle(item)}><span>{item.poster_url ? <img src={item.poster_url} alt="" loading="lazy" /> : item.title.slice(0, 1)}</span><strong>{item.title}</strong><small aria-hidden="true">{active ? "✓" : "+"}</small></button>; })}</div>
+    <div className="onboarding-grid taste-grid">{results.map(item => { const active = selected.some(value => value.media_type === item.media_type && value.tmdb_id === item.tmdb_id); return <button key={`${item.media_type}:${item.tmdb_id}`} type="button" className={`onboarding-card ${active ? "selected" : ""}`} aria-pressed={active} disabled={saving || (!active && selected.length >= 5)} onClick={() => toggle(item)}><span>{item.poster_url ? <img src={item.poster_url} alt="" loading="lazy" /> : item.title.slice(0, 1)}</span><strong>{item.title}</strong><small><Icon name={active ? "check" : "plus"} size={15} /></small></button>; })}</div>
     <div className="wizard-actions"><button className="button secondary" type="button" disabled={saving} onClick={() => void finish(true)}>{t("Skip for now")}</button><button className="button primary" type="button" disabled={saving} onClick={() => void finish()}>{t("Finish")}</button></div>
   </section></main>;
 }

@@ -42,11 +42,10 @@ is documented separately in `frontend-player-v1.md`.
 
 ## Design system
 
-`src/product.css` defines navy surfaces, cyan/teal highlights, spacing, focus,
-poster size, glass only on the header/menu, reduced-motion behavior, and desktop,
-mobile and large-TV breakpoints. Gradients and a subtle orbital arc are reusable
-background layers. Final assets in `public/brand/` supply the desktop wordmark,
-compact icon and favicon; the artwork is never reconstructed as text/CSS.
+`src/product.css` defines ink surfaces, the single teal accent, spacing, focus,
+poster size, reduced-motion behavior, and desktop, mobile and large-TV
+breakpoints; see [the visual system](frontend-visual-system.md). The orbit mark
+in `public/brand/` is paired with the typeset name by `BrandMark`.
 `app/i18n.ts` is the shared English/Türkçe UI dictionary. Profile locale selects
 both UI language and backend localized catalog response; TMDB identity stays fixed.
 

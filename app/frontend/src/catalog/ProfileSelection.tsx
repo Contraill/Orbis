@@ -3,6 +3,8 @@ import { useProfile } from "../app/ProfileContext";
 import { GazingProfileAvatar } from "../app/ProfileAvatar";
 import { useText } from "../app/i18n";
 import { useDirectionalFocus } from "../app/useDirectionalFocus";
+import BrandMark from "../app/BrandMark";
+import Icon from "../app/Icon";
 
 export default function ProfileSelection() {
   const { profiles, loading, error, selectProfile, reload } = useProfile();
@@ -12,7 +14,7 @@ export default function ProfileSelection() {
   return (
     <main className="product-shell ambient profile-page product-picker">
       <section className="profile-panel">
-        <img className="picker-wordmark" src="/brand/wordmark.png" alt="Orbis" />
+        <BrandMark className="picker-wordmark" />
         <h1>{t("Who's watching?")}</h1>
         <p className="profile-intro">{t("Choose a profile to keep progress and preferences separate.")}</p>
         {loading ? <div className="catalog-status">{t("Loading…")}</div> : null}
@@ -33,7 +35,7 @@ export default function ProfileSelection() {
               </div>
             ))}
             <Link className="profile-card link-button" to="/profiles/new">
-              <span className="profile-avatar" aria-hidden="true">+</span>
+              <span className="profile-avatar"><Icon name="plus" size={40} /></span>
               <strong>{t("Add Profile")}</strong>
             </Link>
           </div>

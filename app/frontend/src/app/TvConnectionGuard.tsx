@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import BrandMark from "./BrandMark";
 
 const BACK_KEY = "orbis.tv.launcherHistoryDepth";
 
@@ -45,7 +46,7 @@ export default function TvConnectionGuard() {
   if (!offline) return null;
   return <div className="tv-connection-overlay" role="alertdialog" aria-modal="true" aria-label="Orbis server unavailable">
     <div className="tv-connection-card">
-      <img src="/brand/wordmark.png" alt="Orbis" />
+      <BrandMark />
       <h1>Server unavailable</h1>
       <p>Orbis cannot reach its server right now.</p>
       <p>Configured server: <strong>{window.location.origin}</strong></p>
